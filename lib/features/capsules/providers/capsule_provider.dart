@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:boxed_app/features/capsules/services/capsule_service.dart';
 
 enum CapsuleLoadState { idle, loading, loaded, empty, error }
 
 class CapsuleProvider extends ChangeNotifier {
+  final CapsuleService _service = CapsuleService();
+
   CapsuleLoadState _state = CapsuleLoadState.idle;
   List<Map<String, dynamic>> _capsules = [];
   String? _error;
@@ -11,20 +14,52 @@ class CapsuleProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get capsules => _capsules;
   String? get error => _error;
 
-  void setCapsules(List<Map<String, dynamic>> capsules) {
-    _capsules = capsules;
-    _state = capsules.isEmpty ? CapsuleLoadState.empty : CapsuleLoadState.loaded;
-    notifyListeners();
-  }
-
-  void setLoading() {
+  Future<void> loadCapsules(String userId) async {
     _state = CapsuleLoadState.loading;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final result = await _service.fetchCapsules(userId);
+      _capsules = result;
+      _state = result.isEmpty ? CapsuleLoadState.empty : CapsuleLoadState.loaded;
+    } catch (e) {
+      _error = e.toString();
+      _state = CapsuleLoadState.error;
+    }
     notifyListeners();
   }
 
-  void setError(String error) {
-    _error = error;
-    _state = CapsuleLoadState.error;
+  Future<bool> createCapsule({
+    required String userId,
+    required String name,
+    required String description,
+    required DateTime unlockDate,
+    String emoji = '📦',
+  }) async {
+    try {
+      final capsule = await _service.createCapsule(
+        userId: userId,
+        name: name,
+        description: description,
+        unlockDate: unlockDate,
+        emoji: emoji,
+      );
+      _capsules.insert(0, capsule);
+      _state = CapsuleLoadState.loaded;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> deleteCapsule(String capsuleId) async {
+    await _service.deleteCapsule(capsuleId);
+    _capsules.removeWhere((c) => c['capsuleId'] == capsuleId);
+    _state = _capsules.isEmpty ? CapsuleLoadState.empty : CapsuleLoadState.loaded;
     notifyListeners();
   }
 
