@@ -1,8 +1,6 @@
 import 'package:appwrite/appwrite.dart';
 import 'package:boxed_app/core/constants/appwrite_constants.dart';
 import 'package:boxed_app/core/services/appwrite_service.dart';
-import 'package:boxed_app/core/services/encryption_service.dart';
-import 'package:boxed_app/core/state/user_crypto_state.dart';
 import 'package:uuid/uuid.dart';
 
 class CapsuleService {
@@ -21,22 +19,15 @@ class CapsuleService {
     return result.documents.map((d) => d.data).toList();
   }
 
-  Future<Map<String, dynamic>> createCapsule({
+  Future<Map<String, dynamic>> createCapsuleWithKey({
     required String userId,
     required String name,
     required String description,
     required DateTime unlockDate,
+    required String encryptedCapsuleKey,
     String emoji = '📦',
   }) async {
     final capsuleId = _uuid.v4();
-    final userMasterKey = UserCryptoState.userMasterKey;
-
-    // Generate + encrypt capsule key
-    final capsuleKey = await EncryptionService.generateCapsuleKey();
-    final encryptedKey = await EncryptionService.encryptCapsuleKey(
-      capsuleKey: capsuleKey,
-      userMasterKey: userMasterKey,
-    );
 
     final data = {
       'capsuleId': capsuleId,
@@ -44,7 +35,7 @@ class CapsuleService {
       'description': description.trim(),
       'creatorId': userId,
       'unlockDate': unlockDate.toUtc().toIso8601String(),
-      'encryptedCapsuleKey': encryptedKey,
+      'encryptedCapsuleKey': encryptedCapsuleKey,
       'emoji': emoji,
       'isRevealed': false,
     };
@@ -59,8 +50,20 @@ class CapsuleService {
     return data;
   }
 
+  Future<Map<String, dynamic>?> fetchCapsuleById(String capsuleId) async {
+    try {
+      final doc = await _db.getDocument(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.capsulesTable,
+        documentId: capsuleId,
+      );
+      return doc.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> deleteCapsule(String capsuleId) async {
-    // Delete all memories first
     try {
       bool hasMore = true;
       while (hasMore) {

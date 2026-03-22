@@ -30,30 +30,12 @@ class CapsuleProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> createCapsule({
-    required String userId,
-    required String name,
-    required String description,
-    required DateTime unlockDate,
-    String emoji = '📦',
-  }) async {
-    try {
-      final capsule = await _service.createCapsule(
-        userId: userId,
-        name: name,
-        description: description,
-        unlockDate: unlockDate,
-        emoji: emoji,
-      );
-      _capsules.insert(0, capsule);
-      _state = CapsuleLoadState.loaded;
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      return false;
-    }
+  // Called directly from CreateCapsuleScreen after
+  // capsule + memories are already saved to Appwrite
+  void addCapsule(Map<String, dynamic> capsule) {
+    _capsules.insert(0, capsule);
+    _state = CapsuleLoadState.loaded;
+    notifyListeners();
   }
 
   Future<void> deleteCapsule(String capsuleId) async {
