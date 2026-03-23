@@ -34,7 +34,6 @@ class AuthService {
     );
     final user = await _account.get();
 
-    // Fetch salt from DB
     final docs = await _db.listDocuments(
       databaseId: AppwriteConstants.databaseId,
       collectionId: AppwriteConstants.usersTable,
@@ -65,7 +64,6 @@ class AuthService {
       password: password,
     );
 
-    // Create user document in DB
     await _db.createDocument(
       databaseId: AppwriteConstants.databaseId,
       collectionId: AppwriteConstants.usersTable,
@@ -93,7 +91,8 @@ class AuthService {
         queries: [Query.equal('userId', userId)],
       );
       if (docs.documents.isEmpty) return false;
-      final username = docs.documents.first.data['username'] as String? ?? '';
+      final username =
+          docs.documents.first.data['username'] as String? ?? '';
       return username.trim().isNotEmpty;
     } catch (_) {
       return false;
@@ -128,9 +127,86 @@ class AuthService {
     final docs = await _db.listDocuments(
       databaseId: AppwriteConstants.databaseId,
       collectionId: AppwriteConstants.usersTable,
-      queries: [Query.equal('username_lowercase', username.toLowerCase())],
+      queries: [
+        Query.equal('username_lowercase', username.toLowerCase()),
+      ],
     );
     return docs.documents.isEmpty;
+  }
+
+  Future<Map<String, dynamic>?> getUserProfile(String userId) async {
+    try {
+      final docs = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.usersTable,
+        queries: [Query.equal('userId', userId)],
+      );
+      if (docs.documents.isEmpty) return null;
+      return docs.documents.first.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> updateProfile({
+    required String userId,
+    required String displayName,
+    required String bio,
+  }) async {
+    final docs = await _db.listDocuments(
+      databaseId: AppwriteConstants.databaseId,
+      collectionId: AppwriteConstants.usersTable,
+      queries: [Query.equal('userId', userId)],
+    );
+    if (docs.documents.isEmpty) throw Exception('User not found');
+    final docId = docs.documents.first.$id;
+
+    await _db.updateDocument(
+      databaseId: AppwriteConstants.databaseId,
+      collectionId: AppwriteConstants.usersTable,
+      documentId: docId,
+      data: {
+        'displayName': displayName,
+        'bio': bio,
+      },
+    );
+  }
+
+  Future<void> deleteAccount(String userId) async {
+    // Delete all capsules
+    try {
+      final capsules = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.capsulesTable,
+        queries: [Query.equal('creatorId', userId)],
+      );
+      for (final doc in capsules.documents) {
+        await _db.deleteDocument(
+          databaseId: AppwriteConstants.databaseId,
+          collectionId: AppwriteConstants.capsulesTable,
+          documentId: doc.$id,
+        );
+      }
+    } catch (_) {}
+
+    // Delete user doc
+    try {
+      final docs = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.usersTable,
+        queries: [Query.equal('userId', userId)],
+      );
+      if (docs.documents.isNotEmpty) {
+        await _db.deleteDocument(
+          databaseId: AppwriteConstants.databaseId,
+          collectionId: AppwriteConstants.usersTable,
+          documentId: docs.documents.first.$id,
+        );
+      }
+    } catch (_) {}
+
+    // Delete auth account
+    await _account.deleteSession(sessionId: 'current');
   }
 
   Future<void> logout() async {
