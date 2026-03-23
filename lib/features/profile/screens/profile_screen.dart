@@ -16,7 +16,6 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? _profileData;
   bool _loading = true;
-
   final _authService = AuthService();
 
   @override
@@ -37,14 +36,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _logout() async {
-    await context.read<AuthProvider>().logout();
-    context.read<CapsuleProvider>().clear();
-    if (!mounted) return;
-    Navigator.pushNamedAndRemoveUntil(
-      context, AppRouter.login, (_) => false);
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -63,166 +54,297 @@ class _ProfileScreenState extends State<ProfileScreen> {
             : 'U';
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        title: const Text('Profile',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.white),
-            onPressed: () => Navigator.pushNamed(context, AppRouter.settings),
-          ),
-        ],
-      ),
+      backgroundColor: const Color(0xFF0A0A0A),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Colors.white))
-          : RefreshIndicator(
-              onRefresh: _load,
-              color: Colors.white,
-              backgroundColor: AppTheme.cardDark2,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Column(
-                  children: [
-                    // Gradient header
-                    Container(
-                      width: double.infinity,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.white))
+          : CustomScrollView(
+              slivers: [
+                SliverAppBar(
+                  expandedHeight: 280,
+                  pinned: true,
+                  backgroundColor: const Color(0xFF0A0A0A),
+                  leading: IconButton(
+                    icon: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        shape: BoxShape.circle,
                       ),
-                      padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
-                      child: Column(
-                        children: [
-                          // Avatar
-                          Container(
-                            width: 90,
-                            height: 90,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                              border: Border.all(color: Colors.white, width: 3),
-                            ),
-                            child: Center(
-                              child: Text(initials,
-                                  style: const TextStyle(
-                                      color: Color(0xFF8B5CF6),
-                                      fontSize: 34,
-                                      fontWeight: FontWeight.w700)),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Text(
-                            displayName.isNotEmpty ? displayName : 'Boxed User',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            username.isNotEmpty ? '@$username' : email,
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 14),
-                          ),
-                          if (bio.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Text(bio,
-                                style: const TextStyle(
-                                    color: Colors.white70, fontSize: 13),
-                                textAlign: TextAlign.center),
-                          ],
-                        ],
-                      ),
+                      child: const Icon(Icons.arrow_back,
+                          color: Colors.white, size: 18),
                     ),
-
-                    // Stats
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  actions: [
                     Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        children: [
-                          // Capsule count
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: AppTheme.cardDark,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  capsuleCount.toString(),
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 48,
-                                      fontWeight: FontWeight.w800),
-                                ),
-                                const SizedBox(height: 4),
-                                Text('Capsules',
-                                    style: TextStyle(
-                                        color: Colors.white.withOpacity(0.6),
-                                        fontSize: 15)),
-                              ],
-                            ),
+                      padding: const EdgeInsets.only(right: 16),
+                      child: IconButton(
+                        icon: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.1),
+                            shape: BoxShape.circle,
                           ),
-                          const SizedBox(height: 16),
-
-                          // Edit profile button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: OutlinedButton(
-                              onPressed: () async {
-                                await Navigator.pushNamed(
-                                    context, AppRouter.settings);
-                                _load();
-                              },
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Colors.white),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: const Text('Edit Profile',
-                                  style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600)),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Sign out
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: TextButton(
-                              onPressed: _logout,
-                              style: TextButton.styleFrom(
-                                foregroundColor: AppTheme.red,
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                              ),
-                              child: const Text('Sign Out',
-                                  style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600)),
-                            ),
-                          ),
-                        ],
+                          child: const Icon(Icons.settings_outlined,
+                              color: Colors.white, size: 18),
+                        ),
+                        onPressed: () async {
+                          await Navigator.pushNamed(
+                              context, AppRouter.settings);
+                          _load();
+                        },
                       ),
                     ),
                   ],
+                  flexibleSpace: FlexibleSpaceBar(
+                    background: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Color(0xFF1a1a2e),
+                                Color(0xFF16213e),
+                                Color(0xFF0f3460),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: -40,
+                          right: -40,
+                          child: Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.03),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: -20,
+                          left: -20,
+                          child: Container(
+                            width: 150,
+                            height: 150,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.03),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 32,
+                          left: 0,
+                          right: 0,
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 84,
+                                height: 84,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFF667eea),
+                                      Color(0xFF764ba2),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF667eea)
+                                          .withOpacity(0.4),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    initials,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                displayName.isNotEmpty
+                                    ? displayName
+                                    : 'Boxed User',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                username.isNotEmpty
+                                    ? '@$username'
+                                    : email,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.55),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                              if (bio.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 40),
+                                  child: Text(
+                                    bio,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.5),
+                                      fontSize: 13,
+                                      height: 1.4,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+
+                // Body content
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+                    child: Column(
+                      children: [
+                        // Stats row
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 20, horizontal: 24),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF111111),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.06),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _statItem(
+                                  value: capsuleCount.toString(),
+                                  label: 'Capsules',
+                                  icon: '📦',
+                                ),
+                              ),
+                              Container(
+                                width: 1,
+                                height: 40,
+                                color: Colors.white.withOpacity(0.08),
+                              ),
+                              Expanded(
+                                child: _statItem(
+                                  value: capsuleProvider.capsules
+                                      .where((c) {
+                                        final unlock = DateTime.tryParse(
+                                            c['unlockDate'] ?? '');
+                                        return unlock != null &&
+                                            DateTime.now().isAfter(unlock);
+                                      })
+                                      .length
+                                      .toString(),
+                                  label: 'Unlocked',
+                                  icon: '🔓',
+                                ),
+                              ),
+                              Container(
+                                width: 1,
+                                height: 40,
+                                color: Colors.white.withOpacity(0.08),
+                              ),
+                              Expanded(
+                                child: _statItem(
+                                  value: capsuleProvider.capsules
+                                      .where((c) {
+                                        final unlock = DateTime.tryParse(
+                                            c['unlockDate'] ?? '');
+                                        return unlock != null &&
+                                            DateTime.now().isBefore(unlock);
+                                      })
+                                      .length
+                                      .toString(),
+                                  label: 'Locked',
+                                  icon: '🔒',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+
+                        // Hint
+                        Center(
+                          child: Text(
+                            'Manage your account in Settings ⚙️',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.25),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
+    );
+  }
+
+  Widget _statItem({
+    required String value,
+    required String label,
+    required String icon,
+  }) {
+    return Column(
+      children: [
+        Text(icon, style: const TextStyle(fontSize: 20)),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.45),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 }

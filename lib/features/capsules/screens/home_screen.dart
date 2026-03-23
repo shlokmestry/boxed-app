@@ -80,9 +80,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final capsuleProvider = context.watch<CapsuleProvider>();
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: false,
         title: const Text(
