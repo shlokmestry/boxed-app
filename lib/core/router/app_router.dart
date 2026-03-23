@@ -4,6 +4,7 @@ import 'package:boxed_app/features/onboarding/screens/onboarding_screen.dart';
 import 'package:boxed_app/features/auth/screens/login_screen.dart';
 import 'package:boxed_app/features/auth/screens/signup_screen.dart';
 import 'package:boxed_app/features/auth/screens/choose_username_screen.dart';
+import 'package:boxed_app/features/auth/screens/forgot_password_screen.dart';
 import 'package:boxed_app/features/capsules/screens/home_screen.dart';
 import 'package:boxed_app/features/capsules/screens/create_capsule_screen.dart';
 import 'package:boxed_app/features/capsules/screens/capsule_detail_screen.dart';
@@ -17,6 +18,7 @@ class AppRouter {
   static const String login = '/login';
   static const String signup = '/signup';
   static const String chooseUsername = '/choose-username';
+  static const String forgotPassword = '/forgot-password';
   static const String home = '/home';
   static const String createCapsule = '/create-capsule';
   static const String capsuleDetail = '/capsule-detail';
@@ -36,6 +38,8 @@ class AppRouter {
         return _route(const SignupScreen());
       case chooseUsername:
         return _route(const ChooseUsernameScreen());
+      case forgotPassword:
+        return _route(const ForgotPasswordScreen());
       case home:
         return _route(const HomeScreen());
       case createCapsule:

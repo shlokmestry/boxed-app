@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:boxed_app/core/router/app_router.dart';
 import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
@@ -153,15 +154,18 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Row(
                 children: [
-                  const Icon(Icons.search, color: AppTheme.mutedText2, size: 20),
+                  const Icon(Icons.search,
+                      color: AppTheme.mutedText2, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: TextField(
                       controller: _searchController,
-                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 15),
                       decoration: const InputDecoration(
                         hintText: 'Search capsules...',
-                        hintStyle: TextStyle(color: AppTheme.mutedText2),
+                        hintStyle:
+                            TextStyle(color: AppTheme.mutedText2),
                         border: InputBorder.none,
                         isDense: true,
                       ),
@@ -196,13 +200,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
-                        color: selected ? Colors.white : AppTheme.cardDark2,
+                        color: selected
+                            ? Colors.white
+                            : AppTheme.cardDark2,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         label,
                         style: TextStyle(
-                          color: selected ? Colors.black : AppTheme.mutedText,
+                          color: selected
+                              ? Colors.black
+                              : AppTheme.mutedText,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
@@ -225,23 +233,29 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildBody(CapsuleProvider provider) {
     switch (provider.state) {
       case CapsuleLoadState.loading:
-        return const Center(
-            child: CircularProgressIndicator(color: Colors.white));
+        return ListView.builder(
+          padding: const EdgeInsets.only(bottom: 100),
+          itemCount: 5,
+          itemBuilder: (_, __) => const _ShimmerCard(),
+        );
 
       case CapsuleLoadState.error:
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(provider.error ?? 'Something went wrong',
-                  style: const TextStyle(color: AppTheme.red),
-                  textAlign: TextAlign.center),
+              Text(
+                provider.error ?? 'Something went wrong',
+                style: const TextStyle(color: AppTheme.red),
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 16),
               OutlinedButton(
                 onPressed: _load,
                 style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white)),
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white),
+                ),
                 child: const Text('Retry'),
               ),
             ],
@@ -280,7 +294,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _emptyState() {
     final messages = {
-      CapsuleFilter.all: 'No capsules yet.\nTap + to create your first one.',
+      CapsuleFilter.all:
+          'No capsules yet.\nTap + to create your first one.',
       CapsuleFilter.upcoming: 'No upcoming capsules.',
       CapsuleFilter.unlocked: 'Nothing unlocked yet.\nGive it time.',
     };
@@ -288,7 +303,30 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Text(
         messages[_filter] ?? 'Nothing here.',
         textAlign: TextAlign.center,
-        style: const TextStyle(color: AppTheme.mutedText2, fontSize: 16),
+        style:
+            const TextStyle(color: AppTheme.mutedText2, fontSize: 16),
+      ),
+    );
+  }
+}
+
+class _ShimmerCard extends StatelessWidget {
+  const _ShimmerCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Shimmer.fromColors(
+        baseColor: AppTheme.cardDark,
+        highlightColor: AppTheme.cardDark2,
+        child: Container(
+          height: 90,
+          decoration: BoxDecoration(
+            color: AppTheme.cardDark,
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
       ),
     );
   }
@@ -305,7 +343,8 @@ class _CapsuleCard extends StatelessWidget {
     final name = (data['name'] ?? 'Untitled').toString();
     final emoji = (data['emoji'] ?? '📦').toString();
     final unlockDate = DateTime.tryParse(data['unlockDate'] ?? '');
-    final isUnlocked = unlockDate != null && DateTime.now().isAfter(unlockDate);
+    final isUnlocked =
+        unlockDate != null && DateTime.now().isAfter(unlockDate);
 
     String timeLabel = '';
     if (unlockDate != null) {
@@ -354,7 +393,8 @@ class _CapsuleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                  child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                  child:
+                      Text(emoji, style: const TextStyle(fontSize: 24)),
                 ),
               ),
               const SizedBox(width: 14),
@@ -399,7 +439,9 @@ class _CapsuleCard extends StatelessWidget {
                     child: Text(
                       isUnlocked ? 'Unlocked' : 'Locked',
                       style: TextStyle(
-                        color: isUnlocked ? AppTheme.green : AppTheme.blue,
+                        color: isUnlocked
+                            ? AppTheme.green
+                            : AppTheme.blue,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
