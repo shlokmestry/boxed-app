@@ -8,6 +8,7 @@ import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 import 'package:boxed_app/core/router/app_router.dart';
 import 'package:boxed_app/features/settings/screens/edit_profile_screen.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -17,9 +18,9 @@ class SettingsScreen extends StatelessWidget {
     final themeProvider = context.watch<ThemeProvider>();
 
     return Scaffold(
-     backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
@@ -39,8 +40,7 @@ class SettingsScreen extends StatelessWidget {
               label: 'Edit Profile',
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const EditProfileScreen()),
+                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
               ),
             ),
           ]),
@@ -73,11 +73,17 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 10),
           _SettingsCard(children: [
             _SettingsTile(
-              icon: Icons.share_outlined,
-              label: 'Share Boxed',
+              icon: Icons.person_add_outlined,
+              label: 'Invite Friends',
               onTap: () => Share.share(
-                'Check out Boxed — a time capsule app to seal memories and open them later! 📦',
+                'Hey! I\'ve been using Boxed — a time capsule app to seal memories and open them later. Check it out! 📦',
               ),
+            ),
+            const _Divider(),
+            _SettingsTile(
+              icon: Icons.shield_outlined,
+              label: 'Privacy Policy',
+              onTap: () => _launchPrivacyPolicy(context),
             ),
             const _Divider(),
             _SettingsTile(
@@ -92,7 +98,17 @@ class SettingsScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   const Text(
                     'Seal memories. Open later.',
-                    style: TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14, fontStyle: FontStyle.italic),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Boxed lets you create digital time capsules lock in photos, notes, and moments, then rediscover them on a date you choose.',
+                    style: TextStyle(fontSize: 13, height: 1.5),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Made with ❤️ in Dublin.',
+                    style: TextStyle(fontSize: 13),
                   ),
                 ],
               ),
@@ -143,6 +159,20 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
       );
+
+  Future<void> _launchPrivacyPolicy(BuildContext context) async {
+    // TODO: Replace with your actual hosted privacy policy URL
+    const url = 'https://yourwebsite.com/privacy-policy';
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+    } else {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open Privacy Policy.')),
+      );
+    }
+  }
 
   Future<void> _confirmSignOut(BuildContext context) async {
     final ok = await showDialog<bool>(
@@ -238,7 +268,6 @@ class _SettingsCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
@@ -268,8 +297,7 @@ class _SettingsTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
           child: Row(
             children: [
               Container(
@@ -331,8 +359,7 @@ class _ThemeOptionTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
           child: Row(
             children: [
               Container(
@@ -355,9 +382,8 @@ class _ThemeOptionTile extends StatelessWidget {
                   style: TextStyle(
                     color: selected ? Colors.white : Colors.white54,
                     fontSize: 15,
-                    fontWeight: selected
-                        ? FontWeight.w600
-                        : FontWeight.w400,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
               ),
@@ -379,8 +405,7 @@ class _ThemeOptionTile extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                        color: Colors.white.withOpacity(0.2),
-                        width: 1.5),
+                        color: Colors.white.withOpacity(0.2), width: 1.5),
                   ),
                 ),
             ],
