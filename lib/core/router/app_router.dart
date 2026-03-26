@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:boxed_app/features/splash/splash_screen.dart';
 import 'package:boxed_app/features/onboarding/screens/onboarding_screen.dart';
-import 'package:boxed_app/features/auth/screens/login_screen.dart';
-import 'package:boxed_app/features/auth/screens/signup_screen.dart';
+import 'package:boxed_app/features/auth/screens/auth_screen.dart';
 import 'package:boxed_app/features/auth/screens/choose_username_screen.dart';
 import 'package:boxed_app/features/auth/screens/forgot_password_screen.dart';
 import 'package:boxed_app/features/capsules/screens/home_screen.dart';
@@ -33,9 +32,9 @@ class AppRouter {
       case onboarding:
         return _route(const OnboardingScreen());
       case login:
-        return _route(const LoginScreen());
+        return _route(const AuthScreen(isLogin: true));
       case signup:
-        return _route(const SignupScreen());
+        return _route(const AuthScreen(isLogin: false));
       case chooseUsername:
         return _route(const ChooseUsernameScreen());
       case forgotPassword:

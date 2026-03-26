@@ -59,7 +59,7 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _status = AuthStatus.error;
-      _error = _parseError(e.toString());
+      _error = _parseError(e.toString()); // ✅ fixed
       notifyListeners();
       return false;
     }
@@ -88,7 +88,7 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _status = AuthStatus.error;
-      _error = _parseError(e.toString());
+      _error = _parseError(e.toString()); // ✅ fixed
       notifyListeners();
       return false;
     }
@@ -107,14 +107,32 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> checkUsername() async {
-  if (_user == null) return false;
-  return await _authService.hasUsername(_user!.$id);
-}
+    if (_user == null) return false;
+    return await _authService.hasUsername(_user!.$id);
+  }
 
   String _parseError(String raw) {
-    if (raw.contains('Invalid credentials')) return 'Invalid email or password.';
-    if (raw.contains('already exists')) return 'An account with this email already exists.';
-    if (raw.contains('network')) return 'Network error. Check your connection.';
+    if (raw.contains('user_invalid_credentials') || raw.contains('Invalid credentials')) {
+      return "That's not it. Maybe your other password?";
+    }
+    if (raw.contains('account_deleted')) {
+      return "This box has been sealed for good. Start a new one?";
+    }
+    if (raw.contains('user_session_already_exists')) {
+      return "You've been here before. Try logging in instead.";
+    }
+    if (raw.contains('already exists')) {
+      return "You've been here before. Try logging in instead.";
+    }
+    if (raw.contains('general_rate_limit_exceeded')) {
+      return 'Too many attempts. Give it a few minutes.';
+    }
+    if (raw.contains('network')) {
+      return "No signal. Your box can't reach us right now.";
+    }
+    if (raw.contains('User profile not found')) {
+      return 'Account setup incomplete. Please sign up again.';
+    }
     return 'Something went wrong. Please try again.';
   }
 }
