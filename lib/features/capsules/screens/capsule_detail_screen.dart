@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:math';
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:boxed_app/core/services/encryption_service.dart';
 import 'package:boxed_app/core/state/capsule_crypto_state.dart';
 import 'package:boxed_app/core/state/user_crypto_state.dart';
@@ -26,20 +29,25 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
 
   Map<String, dynamic>? _capsuleData;
   DateTime? _unlockDate;
+  DateTime? _createdAt;
   Duration _remaining = Duration.zero;
   Timer? _timer;
 
+  late ConfettiController _confettiController;
   final _capsuleService = CapsuleService();
 
   @override
   void initState() {
     super.initState();
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 3));
     _load();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _confettiController.dispose();
     CapsuleCryptoState.clearKey(widget.capsuleId);
     super.dispose();
   }
@@ -51,9 +59,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       Map<String, dynamic>? data;
 
       try {
-        data = provider.capsules.firstWhere(
-          (c) => c['capsuleId'] == widget.capsuleId,
-        );
+        data = provider.capsules
+            .firstWhere((c) => c['capsuleId'] == widget.capsuleId);
       } catch (_) {
         data = null;
       }
@@ -78,20 +85,24 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       );
       CapsuleCryptoState.setKey(widget.capsuleId, capsuleKey);
 
-      final unlockDate = DateTime.parse(data['unlockDate'] as String).toLocal();
+      final unlockDate =
+          DateTime.parse(data['unlockDate'] as String).toLocal();
       _unlockDate = unlockDate;
 
-      final now = DateTime.now();
-      final isUnlocked = now.isAfter(unlockDate);
+      // Try to parse createdAt for progress bar
+      if (data['createdAt'] != null) {
+        _createdAt = DateTime.tryParse(data['createdAt'].toString())?.toLocal();
+      }
 
-      if (!isUnlocked) {
+      final now = DateTime.now();
+      if (now.isBefore(unlockDate)) {
         _remaining = unlockDate.difference(now);
         _startTimer();
         setState(() => _stage = _Stage.locked);
       } else {
         final isRevealed = data['isRevealed'] == true;
-        setState(() =>
-            _stage = isRevealed ? _Stage.revealed : _Stage.unlockReady);
+        setState(
+            () => _stage = isRevealed ? _Stage.revealed : _Stage.unlockReady);
       }
     } catch (e) {
       setState(() {
@@ -124,6 +135,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
 
   Future<void> _reveal() async {
     await _capsuleService.markRevealed(widget.capsuleId);
+    _confettiController.play();
     if (mounted) setState(() => _stage = _Stage.revealed);
   }
 
@@ -131,16 +143,20 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.cardDark2,
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete capsule?',
-            style: TextStyle(color: Colors.white)),
-        content: const Text(
-            'This will permanently delete the capsule and all its memories.',
-            style: TextStyle(color: AppTheme.mutedText)),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        content: Text(
+          'This will permanently delete the capsule and all its memories.',
+          style: TextStyle(color: Colors.white.withOpacity(0.6)),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const Text('Cancel',
+                style: TextStyle(color: Colors.white)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -151,9 +167,26 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-
     await context.read<CapsuleProvider>().deleteCapsule(widget.capsuleId);
     if (mounted) Navigator.pop(context);
+  }
+
+  void _share() {
+    final title = (_capsuleData?['name'] ?? 'My Capsule').toString();
+    final unlockStr = _unlockDate != null
+        ? DateFormat('MMM d, yyyy').format(_unlockDate!)
+        : '';
+    Share.share(
+      '📦 I just opened my Boxed capsule — "$title" — sealed on $unlockStr. Check out Boxed!',
+    );
+  }
+
+  double _lockProgress() {
+    if (_createdAt == null || _unlockDate == null) return 0.0;
+    final total = _unlockDate!.difference(_createdAt!).inSeconds;
+    if (total <= 0) return 1.0;
+    final elapsed = DateTime.now().difference(_createdAt!).inSeconds;
+    return (elapsed / total).clamp(0.0, 1.0);
   }
 
   String _pad(int n) => n.toString().padLeft(2, '0');
@@ -164,16 +197,40 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       case _Stage.loading:
         return const Scaffold(
           backgroundColor: Colors.black,
-          body: Center(child: CircularProgressIndicator(color: Colors.white)),
+          body: Center(
+              child: CircularProgressIndicator(color: Colors.white)),
         );
       case _Stage.error:
         return Scaffold(
           backgroundColor: Colors.black,
           appBar: AppBar(
-              backgroundColor: Colors.black, foregroundColor: Colors.white),
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
           body: Center(
-            child: Text(_error ?? 'Error',
-                style: const TextStyle(color: AppTheme.red)),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error ?? 'Something went wrong',
+                      style: const TextStyle(color: AppTheme.red),
+                      textAlign: TextAlign.center),
+                  const SizedBox(height: 20),
+                  OutlinedButton(
+                    onPressed: _load,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       case _Stage.locked:
@@ -190,10 +247,12 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     final hours = _remaining.inHours % 24;
     final minutes = _remaining.inMinutes % 60;
     final seconds = _remaining.inSeconds % 60;
-    final title = (_capsuleData?['name'] ?? '').toString();
+    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy • h:mm a').format(_unlockDate!)
         : '';
+    final progress = _lockProgress();
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -202,8 +261,9 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        title: const Text('Capsule Status',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        title: Text(title,
+            style: const TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.white),
@@ -217,21 +277,13 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           child: Column(
             children: [
               const Spacer(),
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Icon(Icons.lock_outline,
-                      size: 44, color: AppTheme.accent),
-                ),
-              ),
-              const SizedBox(height: 22),
+
+              // Emoji
+              Text(emoji, style: const TextStyle(fontSize: 64)),
+              const SizedBox(height: 16),
+
               Text(
-                title.isNotEmpty ? title : 'Your Capsule',
+                title,
                 style: const TextStyle(
                     color: Colors.white,
                     fontSize: 22,
@@ -240,12 +292,14 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                "This capsule is sealed. Come back when\nthe countdown hits zero.",
+                'Your memories are sealed inside. Almost time.',
                 style: TextStyle(
                     color: Colors.white.withOpacity(0.6), height: 1.4),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 32),
+
+              // Countdown
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -258,7 +312,44 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   _timeTile(_pad(seconds), 'Sec'),
                 ],
               ),
+              const SizedBox(height: 28),
+
+              // Progress bar
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Wait progress',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 12),
+                      ),
+                      Text(
+                        '${(progress * 100).toStringAsFixed(0)}% done',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 6,
+                      backgroundColor: Colors.white.withOpacity(0.08),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                          AppTheme.blue.withOpacity(0.8)),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
+
               if (unlockStr.isNotEmpty)
                 Text(
                   'Unlocks on $unlockStr',
@@ -302,13 +393,19 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Widget _buildUnlockReady() {
-    final title = (_capsuleData?['name'] ?? '').toString();
+    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         elevation: 0,
+        centerTitle: true,
+        title: Text(title,
+            style: const TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline),
@@ -322,17 +419,13 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           child: Column(
             children: [
               const Spacer(),
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                    color: AppTheme.cardDark2, shape: BoxShape.circle),
-                child: const Icon(Icons.card_giftcard,
-                    size: 44, color: Colors.white),
-              ),
+
+              // Emoji
+              Text(emoji, style: const TextStyle(fontSize: 72)),
               const SizedBox(height: 22),
+
               Text(
-                title.isNotEmpty ? title : 'Your Capsule',
+                title,
                 style: const TextStyle(
                     color: Colors.white,
                     fontSize: 22,
@@ -341,11 +434,13 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                'Your memories are ready to be revealed',
-                style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                'Your memories are ready to be revealed.',
+                style:
+                    TextStyle(color: Colors.white.withOpacity(0.7)),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 32),
+
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -363,13 +458,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                           fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                'This is a one-time reveal. Enjoy the moment!',
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.4), fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
               const Spacer(),
             ],
           ),
@@ -379,10 +467,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Widget _buildRevealed() {
-    final title = (_capsuleData?['name'] ?? '').toString();
+    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final desc = (_capsuleData?['description'] ?? '').toString();
     final unlockStr = _unlockDate != null
-        ? DateFormat('MMM d, yyyy').format(_unlockDate!)
+        ? DateFormat('MMMM d, yyyy').format(_unlockDate!)
         : '';
 
     return Scaffold(
@@ -392,72 +481,141 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        title: const Text('Your Capsule',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        title: Text(title,
+            style: const TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
+          // Share button
+          IconButton(
+            icon: const Icon(Icons.ios_share_outlined),
+            onPressed: _share,
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
             onPressed: _delete,
           ),
         ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-          child: Column(
-            children: [
-              Text(
-                title.isNotEmpty ? title : 'Capsule',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              if (desc.isNotEmpty)
-                Text(
-                  desc,
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.7), height: 1.4),
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          MemoryFeedScreen(capsuleId: widget.capsuleId),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+              child: Column(
+                children: [
+                  // Emoji
+                  Text(emoji, style: const TextStyle(fontSize: 64)),
+                  const SizedBox(height: 16),
+
+                  Text(
+                    title,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  // Unlock date prominent
+                  if (unlockStr.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.green.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '🔓 Opened on $unlockStr',
+                        style: TextStyle(
+                            color: AppTheme.green.withOpacity(0.9),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+
+                  if (desc.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.cardDark2,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        desc,
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            height: 1.5,
+                            fontSize: 14),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 28),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MemoryFeedScreen(
+                              capsuleId: widget.capsuleId),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('View Memories',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600)),
                     ),
                   ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+
+                  const Spacer(),
+
+                  Text(
+                    '🔒 All memories are end-to-end encrypted.',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.25),
+                        fontSize: 12),
+                    textAlign: TextAlign.center,
                   ),
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('View Memories',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w600)),
-                ),
+                ],
               ),
-              const Spacer(),
-              if (unlockStr.isNotEmpty)
-                Text(
-                  'Unlocked on $unlockStr',
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.35), fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 8),
-            ],
+            ),
           ),
-        ),
+
+          // Confetti
+          Align(
+            alignment: Alignment.topCenter,
+            child: ConfettiWidget(
+              confettiController: _confettiController,
+              blastDirection: pi / 2,
+              blastDirectionality: BlastDirectionality.explosive,
+              numberOfParticles: 30,
+              gravity: 0.3,
+              colors: const [
+                Colors.white,
+                Colors.blue,
+                Colors.green,
+                Colors.yellow,
+                Colors.pink,
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

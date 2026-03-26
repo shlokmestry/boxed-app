@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
 import 'package:boxed_app/features/auth/services/auth_service.dart';
@@ -21,8 +22,47 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
   bool _isSaving = false;
   String? _feedback;
 
-  final _adjectives = ['Happy','Cosmic','Brave','Chill','Swift','Mystic','Bold','Wild'];
-  final _nouns = ['Penguin','Wizard','Fox','Capsule','Pixel','Dragon','Tiger','Wolf'];
+  static const int _maxLength = 16;
+
+  final _adjectives = [
+  'Arctic', 'Astral', 'Atomic', 'Auburn', 'Azure', 'Barren', 'Blaze',
+  'Bleak', 'Blinding', 'Blizzard', 'Blooming', 'Blurred', 'Boreal', 'Broken',
+  'Bronze', 'Burning', 'Carved', 'Celestial', 'Charred', 'Chrome', 'Cinder',
+  'Clouded', 'Cobalt', 'Collapsed', 'Comet', 'Cracked', 'Crescent', 'Crystal',
+  'Cursed', 'Dawnlit', 'Dead', 'Decayed', 'Deep', 'Dented', 'Dim', 'Distant',
+  'Drifting', 'Dusk', 'Dying', 'Eerie', 'Electric', 'Ember', 'Endless',
+  'Ethereal', 'Exiled', 'Expired', 'Faded', 'Fallen', 'Fierce', 'Flicker',
+  'Floating', 'Foggy', 'Forsaken', 'Fractured', 'Ghostly', 'Glacial', 'Glowing',
+  'Granite', 'Grim', 'Haunted', 'Hazy', 'Hidden', 'Hollow', 'Hungry',
+  'Icy', 'Idle', 'Infinite', 'Infrared', 'Ink', 'Inverted', 'Iron',
+  'Jagged', 'Jade', 'Lost', 'Lucid', 'Magma', 'Melted', 'Midnight',
+  'Molten', 'Mossy', 'Murky', 'Muted', 'Mythic', 'Nether', 'Numb',
+  'Obsidian', 'Onyx', 'Opaque', 'Orbital', 'Pale', 'Parallel', 'Prism',
+  'Radiant', 'Ruined', 'Scattered', 'Sealed', 'Shattered', 'Shifting', 'Silver',
+];
+
+final _nouns = [
+  'Abyss', 'Anvil', 'Apex', 'Archive', 'Arrow', 'Ash', 'Atlas',
+  'Atom', 'Beacon', 'Blade', 'Blaze', 'Bloom', 'Bolt', 'Bone',
+  'Breach', 'Bunker', 'Byte', 'Cache', 'Cage', 'Canyon', 'Carbon',
+  'Cascade', 'Cave', 'Chain', 'Chamber', 'Chasm', 'Circuit', 'Citadel',
+  'Claw', 'Clone', 'Cloud', 'Cluster', 'Code', 'Colony', 'Core',
+  'Crater', 'Crest', 'Crew', 'Crown', 'Crypt', 'Cube', 'Current',
+  'Dagger', 'Data', 'Dawn', 'Debris', 'Deck', 'Delta', 'Den',
+  'Depth', 'Desert', 'Dome', 'Drift', 'Drop', 'Dune', 'Dust',
+  'Echo', 'Edge', 'Epoch', 'Expanse', 'Eye', 'Field', 'Flare',
+  'Flash', 'Flint', 'Flux', 'Forge', 'Fork', 'Fracture', 'Frame',
+  'Frost', 'Fuel', 'Fuse', 'Gate', 'Glyph', 'Grid', 'Grove',
+  'Guard', 'Guild', 'Halo', 'Harbor', 'Hatch', 'Hawk', 'Helm',
+  'Horn', 'Hull', 'Hunter', 'Husk', 'Index', 'Isle', 'Junction',
+  'Keep', 'Key', 'Lance', 'Layer', 'Ledge', 'Legion', 'Lens',
+];
+
+  // Basic profanity blocklist
+  final _blocklist = [
+    'admin','fuck','shit','bitch','asshole','cunt','nigger','nigga',
+    'faggot','retard','whore','slut','dick','cock','pussy',
+  ];
 
   @override
   void initState() {
@@ -39,27 +79,46 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
   void _suggest() {
     final rand = Random();
     final username =
-        '${_adjectives[rand.nextInt(_adjectives.length)]}${_nouns[rand.nextInt(_nouns.length)]}${rand.nextInt(9999)}';
+        '${_adjectives[rand.nextInt(_adjectives.length)]}'
+        '${_nouns[rand.nextInt(_nouns.length)]}'
+        '${rand.nextInt(9999)}';
     _controller.text = username;
     _check(username);
   }
 
+  String? _validate(String trimmed) {
+    if (trimmed.length < 3) return 'Too short. At least 3 characters.';
+    if (trimmed.length > _maxLength) return "Usernames can't be longer than $_maxLength characters.";
+    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(trimmed)) return 'Letters, numbers, and underscores only.';
+    if (trimmed.startsWith('_') || trimmed.endsWith('_')) return "Can't start or end with an underscore.";
+    if (trimmed.contains('__')) return 'No double underscores.';
+    final lower = trimmed.toLowerCase();
+    for (final word in _blocklist) {
+      if (lower.contains(word)) return 'That username isn\'t allowed.';
+    }
+    return null;
+  }
+
   Future<void> _check(String username) async {
-    setState(() { _checking = true; _isAvailable = false; _feedback = null; });
     final trimmed = username.trim();
-    if (trimmed.length < 3) {
-      setState(() { _checking = false; _feedback = 'At least 3 characters'; });
+    final validationError = _validate(trimmed);
+
+    if (validationError != null) {
+      setState(() {
+        _checking = false;
+        _isAvailable = false;
+        _feedback = validationError;
+      });
       return;
     }
-    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(trimmed)) {
-      setState(() { _checking = false; _feedback = 'Letters, numbers and underscores only'; });
-      return;
-    }
+
+    setState(() { _checking = true; _isAvailable = false; _feedback = null; });
+
     final available = await _authService.isUsernameAvailable(trimmed);
     setState(() {
       _checking = false;
       _isAvailable = available;
-      _feedback = available ? "That one's all yours!" : 'Username taken. Try another.';
+      _feedback = available ? "All yours. No one else has it." : "Already claimed. Try something else.";
     });
   }
 
@@ -67,13 +126,18 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.user == null || !_isAvailable) return;
     setState(() => _isSaving = true);
-    await _authService.setUsername(userId: auth.user!.$id, username: _controller.text.trim());
+    await _authService.setUsername(
+      userId: auth.user!.$id,
+      username: _controller.text.trim(),
+    );
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, AppRouter.home);
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentLength = _controller.text.trim().length;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(backgroundColor: Colors.black, automaticallyImplyLeading: false),
@@ -84,55 +148,148 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-              const Text('👤', style: TextStyle(fontSize: 56)),
+
+              // 📦 on-brand icon
+              const Text('📦', style: TextStyle(fontSize: 56)),
               const SizedBox(height: 24),
-              const Text('Pick your username',
-                style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Text('How friends will find you',
-                style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 15)),
-              const SizedBox(height: 40),
-              TextField(
-                controller: _controller,
-                onChanged: _check,
-                enabled: !_isSaving,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  prefixText: '@',
-                  prefixStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-                  filled: true,
-                  fillColor: AppTheme.cardDark2,
-                  hintText: 'username',
-                  hintStyle: const TextStyle(color: AppTheme.mutedText2),
-                  suffixIcon: _checking
-                    ? const Padding(padding: EdgeInsets.all(12),
-                        child: SizedBox(width:20,height:20,
-                          child: CircularProgressIndicator(strokeWidth:2,color:Colors.white)))
-                    : _isAvailable
-                      ? const Icon(Icons.check_circle, color: AppTheme.green)
-                      : null,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+
+              const Text(
+                'Pick your username',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
+              const SizedBox(height: 8),
+
+              // Updated subtitle
+              Text(
+                'Claim your corner of BoxedR',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.6),
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 40),
+
+              // Field + character counter row
+              Stack(
+                children: [
+                  TextField(
+                    controller: _controller,
+                    onChanged: _check,
+                    enabled: !_isSaving,
+                    maxLength: _maxLength,
+                    buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]')),
+                    ],
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      prefixText: '@',
+                      prefixStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      filled: true,
+                      fillColor: AppTheme.cardDark2,
+                      hintText: 'username',
+                      hintStyle: const TextStyle(color: AppTheme.mutedText2),
+                      // Re-roll + status icons
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Re-roll button
+                          IconButton(
+                            icon: const Icon(Icons.refresh_rounded, color: AppTheme.mutedText2),
+                            onPressed: _isSaving ? null : _suggest,
+                            tooltip: 'Suggest another',
+                          ),
+                          // Status indicator
+                          if (_checking)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 12),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            )
+                          else if (_isAvailable)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 12),
+                              child: Icon(Icons.check_circle, color: AppTheme.green),
+                            ),
+                        ],
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+
+                  // Character counter top-right
+                  Positioned(
+                    right: 12,
+                    top: -18,
+                    child: Text(
+                      '$currentLength/$_maxLength',
+                      style: TextStyle(
+                        color: currentLength > _maxLength
+                            ? AppTheme.red
+                            : Colors.white.withOpacity(0.4),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
               if (_feedback != null) ...[
                 const SizedBox(height: 12),
-                Text(_feedback!,
-                  style: TextStyle(color: _isAvailable ? AppTheme.green : AppTheme.red, fontSize: 13)),
+                Text(
+                  _feedback!,
+                  style: TextStyle(
+                    color: _isAvailable ? AppTheme.green : AppTheme.red,
+                    fontSize: 13,
+                  ),
+                ),
               ],
+
               const SizedBox(height: 32),
+
               SizedBox(
-                width: double.infinity, height: 52,
+                width: double.infinity,
+                height: 52,
                 child: OutlinedButton(
-                  onPressed: (_isSaving) ? null : (_isAvailable ? _confirm : _suggest),
+                  onPressed: _isSaving ? null : (_isAvailable ? _confirm : null),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    side: BorderSide(
+                      color: _isAvailable ? Colors.white : Colors.white24,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: _isSaving
-                    ? const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2,color:Colors.white))
-                    : Text(_isAvailable ? 'Continue' : 'Suggest New',
-                        style: const TextStyle(fontSize:16,fontWeight:FontWeight.w600)),
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Claim it',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                 ),
               ),
             ],

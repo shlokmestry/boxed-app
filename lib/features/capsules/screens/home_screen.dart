@@ -43,6 +43,28 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _refresh() async {
+    _load();
+    await Future.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
+            SizedBox(width: 8),
+            Text('Capsules refreshed',
+                style: TextStyle(color: Colors.white, fontSize: 13)),
+          ],
+        ),
+        backgroundColor: const Color(0xFF1A1A1A),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   List<Map<String, dynamic>> _filtered(List<Map<String, dynamic>> all) {
     var list = all;
 
@@ -74,24 +96,95 @@ class _HomeScreenState extends State<HomeScreen> {
     return list;
   }
 
+  // Returns the soonest upcoming capsule
+  Map<String, dynamic>? _nextUnlock(List<Map<String, dynamic>> capsules) {
+    final now = DateTime.now();
+    final upcoming = capsules.where((c) {
+      final unlock = DateTime.tryParse(c['unlockDate'] ?? '');
+      return unlock != null && unlock.isAfter(now);
+    }).toList();
+
+    if (upcoming.isEmpty) return null;
+
+    upcoming.sort((a, b) {
+      final aDate = DateTime.parse(a['unlockDate']);
+      final bDate = DateTime.parse(b['unlockDate']);
+      return aDate.compareTo(bDate);
+    });
+
+    return upcoming.first;
+  }
+
+  String _nextUnlockLabel(DateTime unlock) {
+    final diff = unlock.difference(DateTime.now());
+    if (diff.inDays >= 1) return '⏳ Next unlock in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
+    if (diff.inHours >= 1) return '⏳ Next unlock in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+    return '⏳ Next unlock in ${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'}';
+  }
+
+  Future<void> _confirmDelete(
+      BuildContext context, String capsuleId, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete capsule?',
+            style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w700)),
+        content: Text(
+          '"$name" will be permanently deleted. This cannot be undone.',
+          style: TextStyle(color: Colors.white.withOpacity(0.6)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel',
+                style: TextStyle(color: Colors.white)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Delete', style: TextStyle(color: AppTheme.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      context.read<CapsuleProvider>().deleteCapsule(capsuleId);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final capsuleProvider = context.watch<CapsuleProvider>();
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+
+    // Greeting from email or username
+    final rawName = auth.user?.email?.split('@').first ?? 'there';
+    final greeting =
+        rawName[0].toUpperCase() + rawName.substring(1).toLowerCase();
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: false,
-        title: const Text(
-          'Your Capsules',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Hey $greeting 👋',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
         actions: [
           GestureDetector(
@@ -164,8 +257,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.white, fontSize: 15),
                       decoration: const InputDecoration(
                         hintText: 'Search capsules...',
-                        hintStyle:
-                            TextStyle(color: AppTheme.mutedText2),
+                        hintStyle: TextStyle(color: AppTheme.mutedText2),
                         border: InputBorder.none,
                         isDense: true,
                       ),
@@ -222,19 +314,50 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
 
+            // Next unlock banner
+            if (capsuleProvider.state == CapsuleLoadState.loaded) ...[
+              Builder(builder: (_) {
+                final next = _nextUnlock(capsuleProvider.capsules);
+                if (next == null) return const SizedBox.shrink();
+                final unlockDate = DateTime.parse(next['unlockDate']);
+                return Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppTheme.blue.withOpacity(0.25)),
+                  ),
+                  child: Text(
+                    _nextUnlockLabel(unlockDate),
+                    style: TextStyle(
+                      color: AppTheme.blue.withOpacity(0.9),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                );
+              }),
+            ],
+
             // List
-            Expanded(child: _buildBody(capsuleProvider)),
+            Expanded(
+              child: _buildBody(capsuleProvider, bottomPad),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBody(CapsuleProvider provider) {
+  Widget _buildBody(CapsuleProvider provider, double bottomPad) {
     switch (provider.state) {
       case CapsuleLoadState.loading:
         return ListView.builder(
-          padding: const EdgeInsets.only(bottom: 100),
+          padding: EdgeInsets.only(bottom: bottomPad + 80),
           itemCount: 5,
           itemBuilder: (_, __) => const _ShimmerCard(),
         );
@@ -265,16 +388,24 @@ class _HomeScreenState extends State<HomeScreen> {
       case CapsuleLoadState.empty:
         return _emptyState();
 
+      // ✅ idle now shows shimmer instead of blank flash
+      case CapsuleLoadState.idle:
+        return ListView.builder(
+          padding: EdgeInsets.only(bottom: bottomPad + 80),
+          itemCount: 5,
+          itemBuilder: (_, __) => const _ShimmerCard(),
+        );
+
       case CapsuleLoadState.loaded:
         final filtered = _filtered(provider.capsules);
         if (filtered.isEmpty) return _emptyState();
         return RefreshIndicator(
-          onRefresh: () async => _load(),
+          onRefresh: _refresh,
           color: Colors.white,
           backgroundColor: AppTheme.cardDark2,
           child: ListView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: 100),
+            padding: EdgeInsets.only(bottom: bottomPad + 80),
             itemCount: filtered.length,
             itemBuilder: (_, i) => _CapsuleCard(
               data: filtered[i],
@@ -283,19 +414,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 AppRouter.capsuleDetail,
                 arguments: filtered[i]['capsuleId'] as String,
               ),
+              onLongPress: () => _confirmDelete(
+                context,
+                filtered[i]['capsuleId'] as String,
+                filtered[i]['name'] as String? ?? 'Untitled',
+              ),
             ),
           ),
         );
-
-      case CapsuleLoadState.idle:
-        return const SizedBox.shrink();
     }
   }
 
   Widget _emptyState() {
     final messages = {
-      CapsuleFilter.all:
-          'No capsules yet.\nTap + to create your first one.',
+      CapsuleFilter.all: 'No capsules yet.\nTap + to create your first one.',
       CapsuleFilter.upcoming: 'No upcoming capsules.',
       CapsuleFilter.unlocked: 'Nothing unlocked yet.\nGive it time.',
     };
@@ -303,8 +435,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Text(
         messages[_filter] ?? 'Nothing here.',
         textAlign: TextAlign.center,
-        style:
-            const TextStyle(color: AppTheme.mutedText2, fontSize: 16),
+        style: const TextStyle(color: AppTheme.mutedText2, fontSize: 16),
       ),
     );
   }
@@ -335,8 +466,27 @@ class _ShimmerCard extends StatelessWidget {
 class _CapsuleCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
-  const _CapsuleCard({required this.data, required this.onTap});
+  const _CapsuleCard({
+    required this.data,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  String _timeLabel(DateTime unlockDate, bool isUnlocked) {
+    if (isUnlocked) {
+      final diff = DateTime.now().difference(unlockDate);
+      if (diff.inDays >= 1) return 'Opened ${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+      if (diff.inHours >= 1) return 'Opened ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+      return 'Just opened';
+    } else {
+      final diff = unlockDate.difference(DateTime.now());
+      if (diff.inDays >= 1) return 'Opens in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
+      if (diff.inHours >= 1) return 'Opens in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+      return 'Opens in ${diff.inMinutes} min';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -346,42 +496,32 @@ class _CapsuleCard extends StatelessWidget {
     final isUnlocked =
         unlockDate != null && DateTime.now().isAfter(unlockDate);
 
-    String timeLabel = '';
-    if (unlockDate != null) {
-      if (isUnlocked) {
-        final diff = DateTime.now().difference(unlockDate);
-        if (diff.inDays >= 1) {
-          timeLabel = '${diff.inDays}d ago';
-        } else if (diff.inHours >= 1) {
-          timeLabel = '${diff.inHours}h ago';
-        } else {
-          timeLabel = 'Just now';
-        }
-      } else {
-        final diff = unlockDate.difference(DateTime.now());
-        if (diff.inDays >= 1) {
-          timeLabel = 'in ${diff.inDays}d';
-        } else if (diff.inHours >= 1) {
-          timeLabel = 'in ${diff.inHours}h';
-        } else {
-          timeLabel = 'in ${diff.inMinutes}m';
-        }
-      }
-    }
-
     final unlockStr = unlockDate != null
         ? DateFormat('MMM d, yyyy').format(unlockDate.toLocal())
         : '';
+
+    final timeLabel =
+        unlockDate != null ? _timeLabel(unlockDate, isUnlocked) : '';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: GestureDetector(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppTheme.cardDark,
             borderRadius: BorderRadius.circular(16),
+            // Subtle left accent border
+            border: Border(
+              left: BorderSide(
+                color: isUnlocked
+                    ? AppTheme.green.withOpacity(0.6)
+                    : AppTheme.blue.withOpacity(0.6),
+                width: 3,
+              ),
+            ),
           ),
           child: Row(
             children: [
@@ -393,8 +533,8 @@ class _CapsuleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                  child:
-                      Text(emoji, style: const TextStyle(fontSize: 24)),
+                  child: Text(emoji,
+                      style: const TextStyle(fontSize: 24)),
                 ),
               ),
               const SizedBox(width: 14),
@@ -439,9 +579,7 @@ class _CapsuleCard extends StatelessWidget {
                     child: Text(
                       isUnlocked ? 'Unlocked' : 'Locked',
                       style: TextStyle(
-                        color: isUnlocked
-                            ? AppTheme.green
-                            : AppTheme.blue,
+                        color: isUnlocked ? AppTheme.green : AppTheme.blue,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),

@@ -70,16 +70,15 @@ class _AuthScreenState extends State<AuthScreen>
     });
 
     if (email.isEmpty) {
-      setState(() => _emailError = 'Please enter your email');
+      setState(() => _emailError = 'You forgot the most important part, your email.');
       return;
     }
     if (!email.contains('@')) {
-      setState(() => _emailError = 'Please enter a valid email');
+      setState(() => _emailError = 'Pretty sure emails need an @ symbol somewhere in there.');
       return;
     }
     if (password.length < 8) {
-      setState(() =>
-          _passwordError = 'Password must be at least 8 characters');
+      setState(() => _passwordError = '8 chars minimum. Secrets deserve better.');
       return;
     }
 
@@ -120,16 +119,14 @@ class _AuthScreenState extends State<AuthScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Icon
                   const Center(
                     child: Text('📦', style: TextStyle(fontSize: 48)),
                   ),
                   const SizedBox(height: 24),
 
-                  // Title
                   Center(
                     child: Text(
-                      _isLogin ? 'Welcome back' : 'Welcome to Boxed',
+                      _isLogin ? 'Welcome back to Boxed' : 'Welcome to Boxed',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 26,
@@ -139,7 +136,6 @@ class _AuthScreenState extends State<AuthScreen>
                   ),
                   const SizedBox(height: 8),
 
-                  // Subtitle
                   Center(
                     child: Text(
                       _isLogin
@@ -153,7 +149,6 @@ class _AuthScreenState extends State<AuthScreen>
                   ),
                   const SizedBox(height: 40),
 
-                  // Email field
                   _buildField(
                     controller: _emailController,
                     hint: 'Email',
@@ -163,14 +158,12 @@ class _AuthScreenState extends State<AuthScreen>
                   ),
                   const SizedBox(height: 12),
 
-                  // Password field
                   _buildField(
                     controller: _passwordController,
-                    hint: 'Password (min. 8 characters)',
+                    hint: 'Password',
                     error: _passwordError,
                     obscure: _obscurePassword,
-                    onChanged: (_) =>
-                        setState(() => _passwordError = null),
+                    onChanged: (_) => setState(() => _passwordError = null),
                     suffix: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -178,12 +171,11 @@ class _AuthScreenState extends State<AuthScreen>
                             : Icons.visibility,
                         color: AppTheme.mutedText2,
                       ),
-                      onPressed: () => setState(
-                          () => _obscurePassword = !_obscurePassword),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
 
-                  // Forgot password (login only)
                   if (_isLogin) ...[
                     const SizedBox(height: 8),
                     Align(
@@ -204,7 +196,6 @@ class _AuthScreenState extends State<AuthScreen>
 
                   const SizedBox(height: 28),
 
-                  // Submit button
                   SizedBox(
                     width: double.infinity,
                     height: 52,
@@ -237,7 +228,6 @@ class _AuthScreenState extends State<AuthScreen>
                   ),
                   const SizedBox(height: 24),
 
-                  // Toggle
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -245,8 +235,8 @@ class _AuthScreenState extends State<AuthScreen>
                         _isLogin
                             ? "Don't have an account? "
                             : 'Already have an account? ',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.6)),
+                        style:
+                            TextStyle(color: Colors.white.withOpacity(0.6)),
                       ),
                       GestureDetector(
                         onTap: _toggle,
