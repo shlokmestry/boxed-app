@@ -28,21 +28,34 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    // Clear any stale session first
+    try {
+      await _account.deleteSession(sessionId: 'current');
+    } catch (_) {}
+
     await _account.createEmailPasswordSession(
       email: email,
       password: password,
     );
+
     final user = await _account.get();
 
+    // Check if profile exists — if not, account was deleted
     final docs = await _db.listDocuments(
       databaseId: AppwriteConstants.databaseId,
       collectionId: AppwriteConstants.usersTable,
       queries: [Query.equal('userId', user.$id)],
     );
 
-    if (docs.documents.isEmpty) throw Exception('User profile not found.');
-    final salt = docs.documents.first.data['encryptionSalt'] as String;
+    if (docs.documents.isEmpty) {
+      // Kill session and block login
+      try {
+        await _account.deleteSession(sessionId: 'current');
+      } catch (_) {}
+      throw Exception('account_deleted');
+    }
 
+    final salt = docs.documents.first.data['encryptionSalt'] as String;
     return AuthResult(user: user, salt: salt);
   }
 
@@ -59,26 +72,38 @@ class AuthService {
       password: password,
     );
 
+    // Clear any stale session before creating a new one
+    try {
+      await _account.deleteSession(sessionId: 'current');
+    } catch (_) {}
+
     await _account.createEmailPasswordSession(
       email: email,
       password: password,
     );
 
-    await _db.createDocument(
-      databaseId: AppwriteConstants.databaseId,
-      collectionId: AppwriteConstants.usersTable,
-      documentId: userId,
-      data: {
-        'userId': userId,
-        'username': '',
-        'username_lowercase': '',
-        'displayName': email.split('@')[0],
-        'email': email.toLowerCase(),
-        'bio': '',
-        'photoUrl': '',
-        'encryptionSalt': salt,
-      },
-    );
+    try {
+      await _db.createDocument(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.usersTable,
+        documentId: userId,
+        data: {
+          'userId': userId,
+          'username': '',
+          'username_lowercase': '',
+          'displayName': email.split('@')[0],
+          'email': email.toLowerCase(),
+          'bio': '',
+          'photoUrl': '',
+          'encryptionSalt': salt,
+        },
+      );
+    } catch (e) {
+      try {
+        await _account.deleteSession(sessionId: 'current');
+      } catch (_) {}
+      rethrow;
+    }
 
     return AuthResult(user: user, salt: salt);
   }
@@ -173,7 +198,7 @@ class AuthService {
   }
 
   Future<void> deleteAccount(String userId) async {
-    // Delete all capsules
+    // 1. Delete all capsules
     try {
       final capsules = await _db.listDocuments(
         databaseId: AppwriteConstants.databaseId,
@@ -189,7 +214,7 @@ class AuthService {
       }
     } catch (_) {}
 
-    // Delete user doc
+    // 2. Delete user profile doc
     try {
       final docs = await _db.listDocuments(
         databaseId: AppwriteConstants.databaseId,
@@ -205,8 +230,15 @@ class AuthService {
       }
     } catch (_) {}
 
-    // Delete auth account
-    await _account.deleteSession(sessionId: 'current');
+    // 3. Disable the Appwrite auth account so same email can't log in
+    try {
+      await _account.updateStatus();
+    } catch (_) {}
+
+    // 4. Kill the session
+    try {
+      await _account.deleteSession(sessionId: 'current');
+    } catch (_) {}
   }
 
   Future<void> logout() async {

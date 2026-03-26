@@ -45,7 +45,8 @@ class AuthProvider extends ChangeNotifier {
       _error = null;
       notifyListeners();
 
-      final result = await _authService.login(email: email, password: password);
+      final result = await _authService.login(
+          email: email, password: password);
       _user = result.user;
 
       await UserCryptoState.initializeForUser(
@@ -59,7 +60,7 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _status = AuthStatus.error;
-      _error = _parseError(e.toString());
+      _error = e.toString(); // raw error for debugging
       notifyListeners();
       return false;
     }
@@ -74,7 +75,8 @@ class AuthProvider extends ChangeNotifier {
       _error = null;
       notifyListeners();
 
-      final result = await _authService.signup(email: email, password: password);
+      final result = await _authService.signup(
+          email: email, password: password);
       _user = result.user;
 
       await UserCryptoState.initializeForUser(
@@ -88,7 +90,7 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _status = AuthStatus.error;
-      _error = _parseError(e.toString());
+      _error = e.toString(); // raw error for debugging
       notifyListeners();
       return false;
     }
@@ -107,14 +109,21 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> checkUsername() async {
-  if (_user == null) return false;
-  return await _authService.hasUsername(_user!.$id);
-}
+    if (_user == null) return false;
+    return await _authService.hasUsername(_user!.$id);
+  }
 
   String _parseError(String raw) {
     if (raw.contains('Invalid credentials')) return 'Invalid email or password.';
+    if (raw.contains('account_deleted')) return 'This account has been deleted. Please create a new account.';
     if (raw.contains('already exists')) return 'An account with this email already exists.';
+    if (raw.contains('user_session_already_exists')) return 'Session conflict. Please try again.';
     if (raw.contains('network')) return 'Network error. Check your connection.';
+    if (raw.contains('Document with the requested ID already exists')) return 'Account already exists. Please log in.';
+    if (raw.contains('Collection with the requested ID could not be found')) return 'Database not configured correctly.';
+    if (raw.contains('Unauthorized')) return 'Permission denied. Contact support.';
+    if (raw.contains('Invalid document structure')) return 'Profile data invalid. Contact support.';
+    if (raw.contains('User profile not found')) return 'Account setup incomplete. Please sign up again.';
     return 'Something went wrong. Please try again.';
   }
 }
