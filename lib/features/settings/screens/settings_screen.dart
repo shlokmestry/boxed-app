@@ -1,22 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:boxed_app/core/theme/app_theme.dart';
-import 'package:boxed_app/providers/theme_provider.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
 import 'package:boxed_app/features/auth/services/auth_service.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 import 'package:boxed_app/core/router/app_router.dart';
-import 'package:boxed_app/features/settings/screens/edit_profile_screen.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
+  static const _appVersion = '1.0.0';
+
   @override
   Widget build(BuildContext context) {
-    final themeProvider = context.watch<ThemeProvider>();
-
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
@@ -36,34 +34,9 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 10),
           _SettingsCard(children: [
             _SettingsTile(
-              icon: Icons.person_outline,
-              label: 'Edit Profile',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 24),
-
-          // APPEARANCE
-          _sectionLabel('APPEARANCE'),
-          const SizedBox(height: 10),
-          _SettingsCard(children: [
-            _ThemeOptionTile(
-              label: 'Dark Mode',
-              icon: Icons.dark_mode_outlined,
-              value: ThemeMode.dark,
-              groupValue: themeProvider.themeMode,
-              onTap: () => themeProvider.setThemeMode(ThemeMode.dark),
-            ),
-            const _Divider(),
-            _ThemeOptionTile(
-              label: 'Light Mode',
-              icon: Icons.light_mode_outlined,
-              value: ThemeMode.light,
-              groupValue: themeProvider.themeMode,
-              onTap: () => themeProvider.setThemeMode(ThemeMode.light),
+              icon: Icons.lock_outline,
+              label: 'Change Password',
+              onTap: () => Navigator.pushNamed(context, AppRouter.changePassword),
             ),
           ]),
           const SizedBox(height: 24),
@@ -81,48 +54,21 @@ class SettingsScreen extends StatelessWidget {
             ),
             const _Divider(),
             _SettingsTile(
-              icon: Icons.shield_outlined,
-              label: 'Privacy Policy',
-              onTap: () => _launchPrivacyPolicy(context),
-            ),
-            const _Divider(),
-            _SettingsTile(
               icon: Icons.info_outline,
-              label: 'About',
-              onTap: () => showAboutDialog(
-                context: context,
-                applicationName: 'Boxed',
-                applicationVersion: '1.0.0',
-                applicationLegalese: '© 2026 Boxed. All rights reserved.',
-                children: [
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Seal memories. Open later.',
-                    style: TextStyle(fontSize: 14, fontStyle: FontStyle.italic),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Boxed lets you create digital time capsules lock in photos, notes, and moments, then rediscover them on a date you choose.',
-                    style: TextStyle(fontSize: 13, height: 1.5),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Made with ❤️ in Dublin.',
-                    style: TextStyle(fontSize: 13),
-                  ),
-                ],
-              ),
+              label: 'About Boxed',
+              onTap: () => _showAboutSheet(context),
             ),
           ]),
           const SizedBox(height: 24),
 
-          // ACCOUNT ACTIONS
-          _sectionLabel('ACCOUNT ACTIONS'),
+          // DANGER ZONE
+          _sectionLabel('DANGER ZONE'),
           const SizedBox(height: 10),
           _SettingsCard(children: [
             _SettingsTile(
               icon: Icons.logout_rounded,
               label: 'Sign Out',
+              muted: true,
               onTap: () => _confirmSignOut(context),
             ),
             const _Divider(),
@@ -135,11 +81,37 @@ class SettingsScreen extends StatelessWidget {
           ]),
           const SizedBox(height: 32),
 
+          // Version — tappable to copy
           Center(
-            child: Text(
-              'Boxed v1.0.0',
-              style: TextStyle(
-                  color: Colors.white.withOpacity(0.2), fontSize: 12),
+            child: GestureDetector(
+              onTap: () {
+                Clipboard.setData(
+                    const ClipboardData(text: 'Boxed v$_appVersion'));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Row(
+                      children: [
+                        Icon(Icons.check_circle_outline,
+                            color: Colors.white, size: 16),
+                        SizedBox(width: 8),
+                        Text('Version copied to clipboard',
+                            style: TextStyle(
+                                color: Colors.white, fontSize: 13)),
+                      ],
+                    ),
+                    backgroundColor: const Color(0xFF1A1A1A),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: Text(
+                'Boxed v$_appVersion',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.2), fontSize: 12),
+              ),
             ),
           ),
         ],
@@ -160,18 +132,77 @@ class SettingsScreen extends StatelessWidget {
         ),
       );
 
-  Future<void> _launchPrivacyPolicy(BuildContext context) async {
-    // TODO: Replace with your actual hosted privacy policy URL
-    const url = 'https://yourwebsite.com/privacy-policy';
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-    } else {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open Privacy Policy.')),
-      );
-    }
+  void _showAboutSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF111111),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text('📦', style: TextStyle(fontSize: 48)),
+            const SizedBox(height: 16),
+            const Text('Boxed',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text(
+              'v$_appVersion',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.4), fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Seal memories. Open later.',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 15,
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Boxed lets you create digital time capsules — lock in photos, notes, and moments, then rediscover them on a date you choose.',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 13,
+                height: 1.6,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Made with ❤️ in Dublin.',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.3), fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '© 2026 Boxed. All rights reserved.',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.2), fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmSignOut(BuildContext context) async {
@@ -269,7 +300,7 @@ class _SettingsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        // ✅ Border removed
       ),
       child: Column(children: children),
     );
@@ -281,44 +312,60 @@ class _SettingsTile extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool destructive;
+  final bool muted;
 
   const _SettingsTile({
     required this.icon,
     required this.label,
     required this.onTap,
     this.destructive = false,
+    this.muted = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Destructive = red, muted = grey, normal = white
+    final Color labelColor = destructive
+        ? AppTheme.red
+        : muted
+            ? Colors.white54
+            : Colors.white;
+
+    final Color iconColor = destructive
+        ? AppTheme.red
+        : muted
+            ? Colors.white38
+            : Colors.white;
+
+    final Color iconBg = destructive
+        ? AppTheme.red.withOpacity(0.12)
+        : Colors.white.withOpacity(0.06);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
           child: Row(
             children: [
               Container(
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: destructive
-                      ? AppTheme.red.withOpacity(0.12)
-                      : Colors.white.withOpacity(0.06),
+                  color: iconBg,
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: Icon(icon,
-                    color: destructive ? AppTheme.red : Colors.white,
-                    size: 17),
+                child: Icon(icon, color: iconColor, size: 17),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Text(
                   label,
                   style: TextStyle(
-                    color: destructive ? AppTheme.red : Colors.white,
+                    color: labelColor,
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                   ),
@@ -326,88 +373,7 @@ class _SettingsTile extends StatelessWidget {
               ),
               if (!destructive)
                 Icon(Icons.chevron_right,
-                    color: Colors.white.withOpacity(0.25), size: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ThemeOptionTile extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final ThemeMode value;
-  final ThemeMode groupValue;
-  final VoidCallback onTap;
-
-  const _ThemeOptionTile({
-    required this.label,
-    required this.icon,
-    required this.value,
-    required this.groupValue,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final selected = value == groupValue;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? Colors.white.withOpacity(0.12)
-                      : Colors.white.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(icon,
-                    color: selected ? Colors.white : Colors.white54,
-                    size: 17),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: selected ? Colors.white : Colors.white54,
-                    fontSize: 15,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.w400,
-                  ),
-                ),
-              ),
-              if (selected)
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.check,
-                      color: Colors.black, size: 13),
-                )
-              else
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: Colors.white.withOpacity(0.2), width: 1.5),
-                  ),
-                ),
+                    color: Colors.white.withOpacity(0.2), size: 20),
             ],
           ),
         ),

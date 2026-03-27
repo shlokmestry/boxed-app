@@ -13,8 +13,12 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
+  // ✅ Class-level field
+  final _storage = const FlutterSecureStorage();
+
   late AnimationController _controller;
   late Animation<double> _fadeAnim;
+  late Animation<double> _scaleAnim;
 
   @override
   void initState() {
@@ -23,7 +27,17 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _fadeAnim = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+
+    _fadeAnim = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+
+    // ✅ Scale from 0.85 → 1.0 with a smooth ease-out
+    _scaleAnim = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+
     _controller.forward();
     _navigate();
   }
@@ -35,30 +49,35 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigate() async {
-    await Future.delayed(const Duration(seconds: 2));
+    // ✅ Run auth check and minimum display time in parallel
+    final results = await Future.wait([
+      _resolveDestination(),
+      Future.delayed(const Duration(milliseconds: 1200)),
+    ]);
+
     if (!mounted) return;
+    final destination = results[0] as String;
+    Navigator.pushReplacementNamed(context, destination);
+  }
 
-    const storage = FlutterSecureStorage();
-    final onboardingSeen = await storage.read(key: 'onboarding_seen');
+  Future<String> _resolveDestination() async {
+    try {
+      final onboardingSeen = await _storage.read(key: 'onboarding_seen');
+      if (onboardingSeen != 'true') return AppRouter.onboarding;
 
-    if (onboardingSeen != 'true') {
-      Navigator.pushReplacementNamed(context, AppRouter.onboarding);
-      return;
-    }
+      final authProvider = context.read<AuthProvider>();
+      await authProvider.checkSession();
+      if (!mounted) return AppRouter.login;
 
-    final authProvider = context.read<AuthProvider>();
-    await authProvider.checkSession();
-    if (!mounted) return;
+      if (authProvider.isAuthenticated) {
+        final hasUsername = await authProvider.checkUsername();
+        return hasUsername ? AppRouter.home : AppRouter.chooseUsername;
+      }
 
-    if (authProvider.isAuthenticated) {
-      final hasUsername = await authProvider.checkUsername();
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(
-        context,
-        hasUsername ? AppRouter.home : AppRouter.chooseUsername,
-      );
-    } else {
-      Navigator.pushReplacementNamed(context, AppRouter.login);
+      return AppRouter.login;
+    } catch (_) {
+      // ✅ If anything throws, fall back to login safely
+      return AppRouter.login;
     }
   }
 
@@ -72,15 +91,19 @@ class _SplashScreenState extends State<SplashScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 90,
-                height: 90,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: const Center(
-                  child: Text('📦', style: TextStyle(fontSize: 48)),
+              // ✅ Scale + Fade on the icon
+              ScaleTransition(
+                scale: _scaleAnim,
+                child: Container(
+                  width: 90,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Center(
+                    child: Text('📦', style: TextStyle(fontSize: 48)),
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -94,11 +117,13 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
               ),
               const SizedBox(height: 8),
+              // ✅ w500 + opacity 0.6 for legibility
               Text(
                 'Seal memories. Open later.',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.5),
+                  color: Colors.white.withOpacity(0.6),
                   fontSize: 14,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
