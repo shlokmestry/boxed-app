@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
 import 'package:boxed_app/features/auth/services/auth_service.dart';
@@ -17,6 +18,9 @@ class ChooseUsernameScreen extends StatefulWidget {
 class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
   final _controller = TextEditingController();
   final _authService = AuthService();
+
+  final _storage = const FlutterSecureStorage();
+
   bool _checking = false;
   bool _isAvailable = false;
   bool _isSaving = false;
@@ -25,43 +29,42 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
   static const int _maxLength = 16;
 
   final _adjectives = [
-  'Arctic', 'Astral', 'Atomic', 'Auburn', 'Azure', 'Barren', 'Blaze',
-  'Bleak', 'Blinding', 'Blizzard', 'Blooming', 'Blurred', 'Boreal', 'Broken',
-  'Bronze', 'Burning', 'Carved', 'Celestial', 'Charred', 'Chrome', 'Cinder',
-  'Clouded', 'Cobalt', 'Collapsed', 'Comet', 'Cracked', 'Crescent', 'Crystal',
-  'Cursed', 'Dawnlit', 'Dead', 'Decayed', 'Deep', 'Dented', 'Dim', 'Distant',
-  'Drifting', 'Dusk', 'Dying', 'Eerie', 'Electric', 'Ember', 'Endless',
-  'Ethereal', 'Exiled', 'Expired', 'Faded', 'Fallen', 'Fierce', 'Flicker',
-  'Floating', 'Foggy', 'Forsaken', 'Fractured', 'Ghostly', 'Glacial', 'Glowing',
-  'Granite', 'Grim', 'Haunted', 'Hazy', 'Hidden', 'Hollow', 'Hungry',
-  'Icy', 'Idle', 'Infinite', 'Infrared', 'Ink', 'Inverted', 'Iron',
-  'Jagged', 'Jade', 'Lost', 'Lucid', 'Magma', 'Melted', 'Midnight',
-  'Molten', 'Mossy', 'Murky', 'Muted', 'Mythic', 'Nether', 'Numb',
-  'Obsidian', 'Onyx', 'Opaque', 'Orbital', 'Pale', 'Parallel', 'Prism',
-  'Radiant', 'Ruined', 'Scattered', 'Sealed', 'Shattered', 'Shifting', 'Silver',
-];
+    'Arctic', 'Astral', 'Atomic', 'Auburn', 'Azure', 'Barren', 'Blaze',
+    'Bleak', 'Blinding', 'Blizzard', 'Blooming', 'Blurred', 'Boreal', 'Broken',
+    'Bronze', 'Burning', 'Carved', 'Celestial', 'Charred', 'Chrome', 'Cinder',
+    'Clouded', 'Cobalt', 'Collapsed', 'Comet', 'Cracked', 'Crescent', 'Crystal',
+    'Cursed', 'Dawnlit', 'Dead', 'Decayed', 'Deep', 'Dented', 'Dim', 'Distant',
+    'Drifting', 'Dusk', 'Dying', 'Eerie', 'Electric', 'Ember', 'Endless',
+    'Ethereal', 'Exiled', 'Expired', 'Faded', 'Fallen', 'Fierce', 'Flicker',
+    'Floating', 'Foggy', 'Forsaken', 'Fractured', 'Ghostly', 'Glacial', 'Glowing',
+    'Granite', 'Grim', 'Haunted', 'Hazy', 'Hidden', 'Hollow', 'Hungry',
+    'Icy', 'Idle', 'Infinite', 'Infrared', 'Ink', 'Inverted', 'Iron',
+    'Jagged', 'Jade', 'Lost', 'Lucid', 'Magma', 'Melted', 'Midnight',
+    'Molten', 'Mossy', 'Murky', 'Muted', 'Mythic', 'Nether', 'Numb',
+    'Obsidian', 'Onyx', 'Opaque', 'Orbital', 'Pale', 'Parallel', 'Prism',
+    'Radiant', 'Ruined', 'Scattered', 'Sealed', 'Shattered', 'Shifting', 'Silver',
+  ];
 
-final _nouns = [
-  'Abyss', 'Anvil', 'Apex', 'Archive', 'Arrow', 'Ash', 'Atlas',
-  'Atom', 'Beacon', 'Blade', 'Blaze', 'Bloom', 'Bolt', 'Bone',
-  'Breach', 'Bunker', 'Byte', 'Cache', 'Cage', 'Canyon', 'Carbon',
-  'Cascade', 'Cave', 'Chain', 'Chamber', 'Chasm', 'Circuit', 'Citadel',
-  'Claw', 'Clone', 'Cloud', 'Cluster', 'Code', 'Colony', 'Core',
-  'Crater', 'Crest', 'Crew', 'Crown', 'Crypt', 'Cube', 'Current',
-  'Dagger', 'Data', 'Dawn', 'Debris', 'Deck', 'Delta', 'Den',
-  'Depth', 'Desert', 'Dome', 'Drift', 'Drop', 'Dune', 'Dust',
-  'Echo', 'Edge', 'Epoch', 'Expanse', 'Eye', 'Field', 'Flare',
-  'Flash', 'Flint', 'Flux', 'Forge', 'Fork', 'Fracture', 'Frame',
-  'Frost', 'Fuel', 'Fuse', 'Gate', 'Glyph', 'Grid', 'Grove',
-  'Guard', 'Guild', 'Halo', 'Harbor', 'Hatch', 'Hawk', 'Helm',
-  'Horn', 'Hull', 'Hunter', 'Husk', 'Index', 'Isle', 'Junction',
-  'Keep', 'Key', 'Lance', 'Layer', 'Ledge', 'Legion', 'Lens',
-];
+  final _nouns = [
+    'Abyss', 'Anvil', 'Apex', 'Archive', 'Arrow', 'Ash', 'Atlas',
+    'Atom', 'Beacon', 'Blade', 'Blaze', 'Bloom', 'Bolt', 'Bone',
+    'Breach', 'Bunker', 'Byte', 'Cache', 'Cage', 'Canyon', 'Carbon',
+    'Cascade', 'Cave', 'Chain', 'Chamber', 'Chasm', 'Circuit', 'Citadel',
+    'Claw', 'Clone', 'Cloud', 'Cluster', 'Code', 'Colony', 'Core',
+    'Crater', 'Crest', 'Crew', 'Crown', 'Crypt', 'Cube', 'Current',
+    'Dagger', 'Data', 'Dawn', 'Debris', 'Deck', 'Delta', 'Den',
+    'Depth', 'Desert', 'Dome', 'Drift', 'Drop', 'Dune', 'Dust',
+    'Echo', 'Edge', 'Epoch', 'Expanse', 'Eye', 'Field', 'Flare',
+    'Flash', 'Flint', 'Flux', 'Forge', 'Fork', 'Fracture', 'Frame',
+    'Frost', 'Fuel', 'Fuse', 'Gate', 'Glyph', 'Grid', 'Grove',
+    'Guard', 'Guild', 'Halo', 'Harbor', 'Hatch', 'Hawk', 'Helm',
+    'Horn', 'Hull', 'Hunter', 'Husk', 'Index', 'Isle', 'Junction',
+    'Keep', 'Key', 'Lance', 'Layer', 'Ledge', 'Legion', 'Lens',
+  ];
 
-  // Basic profanity blocklist
   final _blocklist = [
-    'admin','fuck','shit','bitch','asshole','cunt','nigger','nigga',
-    'faggot','retard','whore','slut','dick','cock','pussy',
+    'admin', 'fuck', 'shit', 'bitch', 'asshole', 'cunt', 'nigger', 'nigga',
+    'faggot', 'retard', 'whore', 'slut', 'dick', 'cock', 'pussy',
   ];
 
   @override
@@ -88,13 +91,16 @@ final _nouns = [
 
   String? _validate(String trimmed) {
     if (trimmed.length < 3) return 'Too short. At least 3 characters.';
-    if (trimmed.length > _maxLength) return "Usernames can't be longer than $_maxLength characters.";
-    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(trimmed)) return 'Letters, numbers, and underscores only.';
-    if (trimmed.startsWith('_') || trimmed.endsWith('_')) return "Can't start or end with an underscore.";
+    if (trimmed.length > _maxLength)
+      return "Usernames can't be longer than $_maxLength characters.";
+    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(trimmed))
+      return 'Letters, numbers, and underscores only.';
+    if (trimmed.startsWith('_') || trimmed.endsWith('_'))
+      return "Can't start or end with an underscore.";
     if (trimmed.contains('__')) return 'No double underscores.';
     final lower = trimmed.toLowerCase();
     for (final word in _blocklist) {
-      if (lower.contains(word)) return 'That username isn\'t allowed.';
+      if (lower.contains(word)) return "That username isn't allowed.";
     }
     return null;
   }
@@ -112,26 +118,48 @@ final _nouns = [
       return;
     }
 
-    setState(() { _checking = true; _isAvailable = false; _feedback = null; });
+    setState(() {
+      _checking = true;
+      _isAvailable = false;
+      _feedback = null;
+    });
 
     final available = await _authService.isUsernameAvailable(trimmed);
+    if (!mounted) return;
     setState(() {
       _checking = false;
       _isAvailable = available;
-      _feedback = available ? "All yours. No one else has it." : "Already claimed. Try something else.";
+      _feedback = available
+          ? 'All yours. No one else has it.'
+          : 'Already claimed. Try something else.';
     });
   }
 
   Future<void> _confirm() async {
     final auth = context.read<AuthProvider>();
     if (auth.user == null || !_isAvailable) return;
+
     setState(() => _isSaving = true);
-    await _authService.setUsername(
-      userId: auth.user!.$id,
-      username: _controller.text.trim(),
-    );
-    if (!mounted) return;
-    Navigator.pushReplacementNamed(context, AppRouter.home);
+
+    try {
+      await _authService.setUsername(
+        userId: auth.user!.$id,
+        username: _controller.text.trim(),
+      );
+      if (!mounted) return;
+
+      // ✅ Clear flag so HomeScreen shows welcome sheet once for this new user
+      await _storage.delete(key: 'welcome_seen');
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, AppRouter.home);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSaving = false;
+        _feedback = 'Something went wrong. Please try again.';
+      });
+    }
   }
 
   @override
@@ -140,7 +168,10 @@ final _nouns = [
 
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black, automaticallyImplyLeading: false),
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        automaticallyImplyLeading: false,
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -149,7 +180,6 @@ final _nouns = [
             children: [
               const SizedBox(height: 20),
 
-              // 📦 on-brand icon
               const Text('📦', style: TextStyle(fontSize: 56)),
               const SizedBox(height: 24),
 
@@ -163,9 +193,8 @@ final _nouns = [
               ),
               const SizedBox(height: 8),
 
-              // Updated subtitle
               Text(
-                'Claim your corner of BoxedR',
+                'Claim your corner of Boxed',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.6),
                   fontSize: 15,
@@ -173,8 +202,9 @@ final _nouns = [
               ),
               const SizedBox(height: 40),
 
-              // Field + character counter row
+              // Field + character counter
               Stack(
+                clipBehavior: Clip.none,
                 children: [
                   TextField(
                     controller: _controller,
@@ -183,27 +213,28 @@ final _nouns = [
                     maxLength: _maxLength,
                     buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
                     inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9_]')),
+                      FilteringTextInputFormatter.allow(
+                          RegExp(r'[a-zA-Z0-9_]')),
                     ],
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       prefixText: '@',
-                      prefixStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      prefixStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.5)),
                       filled: true,
                       fillColor: AppTheme.cardDark2,
                       hintText: 'username',
-                      hintStyle: const TextStyle(color: AppTheme.mutedText2),
-                      // Re-roll + status icons
+                      hintStyle:
+                          const TextStyle(color: AppTheme.mutedText2),
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Re-roll button
                           IconButton(
-                            icon: const Icon(Icons.refresh_rounded, color: AppTheme.mutedText2),
+                            icon: const Icon(Icons.refresh_rounded,
+                                color: AppTheme.mutedText2),
                             onPressed: _isSaving ? null : _suggest,
                             tooltip: 'Suggest another',
                           ),
-                          // Status indicator
                           if (_checking)
                             const Padding(
                               padding: EdgeInsets.only(right: 12),
@@ -219,7 +250,8 @@ final _nouns = [
                           else if (_isAvailable)
                             const Padding(
                               padding: EdgeInsets.only(right: 12),
-                              child: Icon(Icons.check_circle, color: AppTheme.green),
+                              child: Icon(Icons.check_circle,
+                                  color: AppTheme.green),
                             ),
                         ],
                       ),
@@ -230,10 +262,10 @@ final _nouns = [
                     ),
                   ),
 
-                  // Character counter top-right
+                  // ✅ Character counter — fixed positioning
                   Positioned(
-                    right: 12,
-                    top: -18,
+                    right: 4,
+                    top: -20,
                     child: Text(
                       '$currentLength/$_maxLength',
                       style: TextStyle(
@@ -260,35 +292,54 @@ final _nouns = [
 
               const SizedBox(height: 32),
 
+              // ✅ Filled white button when available — matches app CTA style
               SizedBox(
                 width: double.infinity,
                 height: 52,
-                child: OutlinedButton(
-                  onPressed: _isSaving ? null : (_isAvailable ? _confirm : null),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: BorderSide(
-                      color: _isAvailable ? Colors.white : Colors.white24,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: _isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _isAvailable && !_isSaving
+                      ? ElevatedButton(
+                          key: const ValueKey('filled'),
+                          onPressed: _confirm,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Claim it',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700),
                           ),
                         )
-                      : const Text(
-                          'Claim it',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                      : OutlinedButton(
+                          key: const ValueKey('outlined'),
+                          onPressed: null,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white24),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                           ),
+                          child: _isSaving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Claim it',
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700),
+                                ),
                         ),
                 ),
               ),
