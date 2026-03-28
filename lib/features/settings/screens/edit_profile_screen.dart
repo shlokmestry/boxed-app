@@ -13,6 +13,7 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _nameController = TextEditingController();
+  final _bioController = TextEditingController();
   final _usernameController = TextEditingController();
   final _authService = AuthService();
 
@@ -32,6 +33,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _bioController.dispose();
     _usernameController.dispose();
     super.dispose();
   }
@@ -43,6 +45,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (auth.user == null) return;
       final data = await _authService.getUserProfile(auth.user!.$id);
       _nameController.text = data?['displayName'] ?? '';
+      _bioController.text = data?['bio'] ?? '';
       _usernameController.text = data?['username'] ?? '';
       _originalUsername = data?['username'] ?? '';
     } catch (_) {}
@@ -91,6 +94,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (!_usernameAvailable) return;
 
     final name = _nameController.text.trim();
+    final bio = _bioController.text.trim();
     final username = _usernameController.text.trim();
 
     if (name.isEmpty) {
@@ -112,7 +116,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await _authService.updateProfile(
         userId: userId,
         displayName: name,
-        bio: '',
+        bio: bio,
       );
 
       if (username != _originalUsername && username.isNotEmpty) {
@@ -176,7 +180,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               children: [
                 const SizedBox(height: 8),
 
-                // Name field
+                // Display Name
                 _fieldLabel('Display Name'),
                 const SizedBox(height: 8),
                 _inputField(
@@ -185,7 +189,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Username field
+                // Username
                 _fieldLabel('Username'),
                 const SizedBox(height: 8),
                 _inputField(
@@ -213,9 +217,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 Text(
                   'Letters, numbers and underscores only',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.3),
-                      fontSize: 12),
+                      color: Colors.white.withOpacity(0.3), fontSize: 12),
                 ),
+                const SizedBox(height: 20),
+
+                // Bio
+                _fieldLabel('Bio'),
+                const SizedBox(height: 8),
+                _inputField(
+                  controller: _bioController,
+                  hint: 'A short bio...',
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'A short description shown on your profile.',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.3), fontSize: 12),
+                ),
+                const SizedBox(height: 32),
               ],
             ),
     );
@@ -238,6 +258,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     Widget? suffix,
     ValueChanged<String>? onChanged,
     String? error,
+    int maxLines = 1,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,6 +274,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ),
           child: Row(
+            crossAxisAlignment: maxLines > 1
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.center,
             children: [
               if (prefix != null) ...[
                 const SizedBox(width: 16),
@@ -263,12 +287,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 child: TextField(
                   controller: controller,
                   onChanged: onChanged,
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 15),
+                  maxLines: maxLines,
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
                   decoration: InputDecoration(
                     hintText: hint,
-                    hintStyle:
-                        const TextStyle(color: AppTheme.mutedText2),
+                    hintStyle: const TextStyle(color: AppTheme.mutedText2),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 15),

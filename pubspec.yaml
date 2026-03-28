@@ -22,9 +22,9 @@ dependencies:
   # Image picking
   image_picker: ^1.1.2
 
-  # File handling
-  path_provider: ^2.1.4
-  path: ^1.9.0
+  url_launcher: ^6.3.0
+
+  
 
   # Secure local storage (for persisting master key)
   flutter_secure_storage: ^9.2.2
@@ -38,14 +38,12 @@ dependencies:
   # Sharing
   share_plus: ^10.0.2
 
-  # Cached images
-  cached_network_image: ^3.4.1
+  
 
   # Loading shimmer effect
   shimmer: ^3.0.0
 
-  # Lottie animations
-  lottie: ^3.1.2
+ 
 
   cupertino_icons: ^1.0.8
 

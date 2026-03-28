@@ -7,6 +7,7 @@ import 'package:shimmer/shimmer.dart';
 import 'package:boxed_app/core/router/app_router.dart';
 import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
+import 'package:boxed_app/features/auth/services/auth_service.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 
 enum CapsuleFilter { all, upcoming, unlocked }
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _storage = const FlutterSecureStorage();
   String _query = '';
   CapsuleFilter _filter = CapsuleFilter.all;
+  String _displayName = '';
 
   @override
   void initState() {
@@ -32,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _load();
+      _loadDisplayName();
       await _maybeShowWelcome();
     });
   }
@@ -47,6 +50,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (auth.user != null) {
       context.read<CapsuleProvider>().loadCapsules(auth.user!.$id);
     }
+  }
+
+  Future<void> _loadDisplayName() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.user == null) return;
+    try {
+      final data =
+          await AuthService().getUserProfile(auth.user!.$id);
+      final username =
+          (data?['username'] as String? ?? '').trim();
+      final display =
+          (data?['displayName'] as String? ?? '').trim();
+      if (mounted) {
+        setState(
+            () => _displayName = username.isNotEmpty ? username : display);
+      }
+    } catch (_) {}
   }
 
   Future<void> _maybeShowWelcome() async {
@@ -86,8 +106,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         backgroundColor: const Color(0xFF1A1A1A),
         behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -144,24 +164,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _nextUnlockLabel(DateTime unlock) {
     final diff = unlock.difference(DateTime.now());
-    if (diff.inDays >= 1)
+    if (diff.inDays >= 1) {
       return '⏳ Next unlock in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
-    if (diff.inHours >= 1)
+    }
+    if (diff.inHours >= 1) {
       return '⏳ Next unlock in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+    }
     return '⏳ Next unlock in ${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'}';
   }
 
   Future<void> _confirmDelete(
       BuildContext context, String capsuleId, String name) async {
+    HapticFeedback.mediumImpact();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete capsule?',
-            style:
-                TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w700)),
         content: Text(
           '"$name" will be permanently deleted. This cannot be undone.',
           style: TextStyle(color: Colors.white.withOpacity(0.6)),
@@ -169,8 +192,8 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child:
-                const Text('Cancel', style: TextStyle(color: Colors.white)),
+            child: const Text('Cancel',
+                style: TextStyle(color: Colors.white)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -191,9 +214,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final capsuleProvider = context.watch<CapsuleProvider>();
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
-    final rawName = auth.user?.email?.split('@').first ?? 'there';
-    final greeting =
-        rawName[0].toUpperCase() + rawName.substring(1).toLowerCase();
+    // ✅ Use loaded display name, fall back to email prefix
+    final greeting = _displayName.isNotEmpty
+        ? _displayName
+        : (auth.user?.email?.split('@').first ?? 'there');
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -201,18 +225,13 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Hey $greeting 👋',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+        title: Text(
+          'Hey $greeting 👋',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         actions: [
           GestureDetector(
@@ -286,7 +305,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.white, fontSize: 15),
                       decoration: const InputDecoration(
                         hintText: 'Search capsules...',
-                        hintStyle: TextStyle(color: AppTheme.mutedText2),
+                        hintStyle:
+                            TextStyle(color: AppTheme.mutedText2),
                         border: InputBorder.none,
                         isDense: true,
                       ),
@@ -348,7 +368,8 @@ class _HomeScreenState extends State<HomeScreen> {
               Builder(builder: (_) {
                 final next = _nextUnlock(capsuleProvider.capsules);
                 if (next == null) return const SizedBox.shrink();
-                final unlockDate = DateTime.parse(next['unlockDate']);
+                final unlockDate =
+                    DateTime.parse(next['unlockDate']);
                 return Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 16),
@@ -372,7 +393,6 @@ class _HomeScreenState extends State<HomeScreen> {
               }),
             ],
 
-            // List
             Expanded(
               child: _buildBody(capsuleProvider, bottomPad),
             ),
@@ -432,7 +452,8 @@ class _HomeScreenState extends State<HomeScreen> {
             filter: _filter,
             onCreateTap: () async {
               HapticFeedback.lightImpact();
-              await Navigator.pushNamed(context, AppRouter.createCapsule);
+              await Navigator.pushNamed(
+                  context, AppRouter.createCapsule);
               _load();
             },
           );
@@ -480,7 +501,6 @@ class _WelcomeSheet extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Handle
           Container(
             width: 36,
             height: 4,
@@ -490,10 +510,8 @@ class _WelcomeSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 32),
-
           const Text('📦', style: TextStyle(fontSize: 56)),
           const SizedBox(height: 20),
-
           const Text(
             'Welcome to Boxed',
             style: TextStyle(
@@ -503,7 +521,6 @@ class _WelcomeSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-
           Text(
             'Seal memories today - photos, notes, anything that matters.\nSet a date. Open it when the time is right.',
             style: TextStyle(
@@ -514,17 +531,15 @@ class _WelcomeSheet extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
-
-          // Feature rows
-          _featureRow('🔒', 'End-to-end encrypted', 'Your memories, only yours'),
+          _featureRow('🔒', 'End-to-end encrypted',
+              'Your memories, only yours'),
           const SizedBox(height: 14),
-          _featureRow('⏳', 'Time-locked capsules', 'Sealed until the day you choose'),
+          _featureRow('⏳', 'Time-locked capsules',
+              'Sealed until the day you choose'),
           const SizedBox(height: 14),
-          _featureRow('🎉', 'The reveal moment', 'Confetti when you finally open it'),
-
+          _featureRow('🎉', 'The reveal moment',
+              'Confetti when you finally open it'),
           const SizedBox(height: 36),
-
-          // CTA
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -539,8 +554,8 @@ class _WelcomeSheet extends StatelessWidget {
               ),
               child: const Text(
                 'Create my first capsule →',
-                style:
-                    TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w700),
               ),
             ),
           ),
@@ -575,7 +590,8 @@ class _WelcomeSheet extends StatelessWidget {
             const SizedBox(height: 2),
             Text(subtitle,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.4), fontSize: 12)),
+                    color: Colors.white.withOpacity(0.4),
+                    fontSize: 12)),
           ],
         ),
       ],
@@ -606,11 +622,13 @@ class _EmptyStateState extends State<_EmptyState>
     super.initState();
     _controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 500));
-    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _fade =
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.08),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    ).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     _controller.forward();
   }
 
@@ -622,7 +640,6 @@ class _EmptyStateState extends State<_EmptyState>
 
   @override
   Widget build(BuildContext context) {
-    // Filter-specific messaging
     final isAll = widget.filter == CapsuleFilter.all;
     final isUpcoming = widget.filter == CapsuleFilter.upcoming;
 
@@ -667,7 +684,6 @@ class _EmptyStateState extends State<_EmptyState>
                   ),
                 ),
                 const SizedBox(height: 20),
-
                 Text(
                   headline,
                   style: const TextStyle(
@@ -678,7 +694,6 @@ class _EmptyStateState extends State<_EmptyState>
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
-
                 Text(
                   subtext,
                   style: TextStyle(
@@ -688,8 +703,6 @@ class _EmptyStateState extends State<_EmptyState>
                   ),
                   textAlign: TextAlign.center,
                 ),
-
-                // Only show CTA on "All" filter empty state
                 if (isAll) ...[
                   const SizedBox(height: 28),
                   SizedBox(
@@ -762,17 +775,21 @@ class _CapsuleCard extends StatelessWidget {
   String _timeLabel(DateTime unlockDate, bool isUnlocked) {
     if (isUnlocked) {
       final diff = DateTime.now().difference(unlockDate);
-      if (diff.inDays >= 1)
+      if (diff.inDays >= 1) {
         return 'Opened ${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
-      if (diff.inHours >= 1)
+      }
+      if (diff.inHours >= 1) {
         return 'Opened ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+      }
       return 'Just opened';
     } else {
       final diff = unlockDate.difference(DateTime.now());
-      if (diff.inDays >= 1)
+      if (diff.inDays >= 1) {
         return 'Opens in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
-      if (diff.inHours >= 1)
+      }
+      if (diff.inHours >= 1) {
         return 'Opens in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+      }
       return 'Opens in ${diff.inMinutes} min';
     }
   }
@@ -821,8 +838,8 @@ class _CapsuleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                  child:
-                      Text(emoji, style: const TextStyle(fontSize: 24)),
+                  child: Text(emoji,
+                      style: const TextStyle(fontSize: 24)),
                 ),
               ),
               const SizedBox(width: 14),
@@ -867,8 +884,9 @@ class _CapsuleCard extends StatelessWidget {
                     child: Text(
                       isUnlocked ? 'Unlocked' : 'Locked',
                       style: TextStyle(
-                        color:
-                            isUnlocked ? AppTheme.green : AppTheme.blue,
+                        color: isUnlocked
+                            ? AppTheme.green
+                            : AppTheme.blue,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
