@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -41,7 +42,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     super.initState();
     _confettiController =
         ConfettiController(duration: const Duration(seconds: 3));
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
@@ -89,9 +90,9 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           DateTime.parse(data['unlockDate'] as String).toLocal();
       _unlockDate = unlockDate;
 
-      // Try to parse createdAt for progress bar
       if (data['createdAt'] != null) {
-        _createdAt = DateTime.tryParse(data['createdAt'].toString())?.toLocal();
+        _createdAt =
+            DateTime.tryParse(data['createdAt'].toString())?.toLocal();
       }
 
       final now = DateTime.now();
@@ -101,8 +102,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         setState(() => _stage = _Stage.locked);
       } else {
         final isRevealed = data['isRevealed'] == true;
-        setState(
-            () => _stage = isRevealed ? _Stage.revealed : _Stage.unlockReady);
+        setState(() =>
+            _stage = isRevealed ? _Stage.revealed : _Stage.unlockReady);
       }
     } catch (e) {
       setState(() {
@@ -134,6 +135,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Future<void> _reveal() async {
+    // ✅ Haptic feedback on reveal
+    HapticFeedback.heavyImpact();
     await _capsuleService.markRevealed(widget.capsuleId);
     _confettiController.play();
     if (mounted) setState(() => _stage = _Stage.revealed);
@@ -144,10 +147,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete capsule?',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w700)),
         content: Text(
           'This will permanently delete the capsule and all its memories.',
           style: TextStyle(color: Colors.white.withOpacity(0.6)),
@@ -172,7 +176,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   void _share() {
-    final title = (_capsuleData?['name'] ?? 'My Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'My Capsule').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy').format(_unlockDate!)
         : '';
@@ -189,6 +194,20 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     return (elapsed / total).clamp(0.0, 1.0);
   }
 
+  String _timeWaited() {
+    if (_createdAt == null || _unlockDate == null) return '';
+    final days = _unlockDate!.difference(_createdAt!).inDays;
+    if (days < 1) return 'Less than a day';
+    if (days == 1) return '1 day';
+    if (days < 30) return '$days days';
+    if (days < 365) {
+      final months = (days / 30).round();
+      return '$months month${months > 1 ? 's' : ''}';
+    }
+    final years = (days / 365 * 10).round() / 10;
+    return '$years year${years != 1.0 ? 's' : ''}';
+  }
+
   String _pad(int n) => n.toString().padLeft(2, '0');
 
   @override
@@ -197,8 +216,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       case _Stage.loading:
         return const Scaffold(
           backgroundColor: Colors.black,
-          body: Center(
-              child: CircularProgressIndicator(color: Colors.white)),
+          body:
+              Center(child: CircularProgressIndicator(color: Colors.white)),
         );
       case _Stage.error:
         return Scaffold(
@@ -247,7 +266,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     final hours = _remaining.inHours % 24;
     final minutes = _remaining.inMinutes % 60;
     final seconds = _remaining.inSeconds % 60;
-    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy • h:mm a').format(_unlockDate!)
@@ -277,11 +297,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           child: Column(
             children: [
               const Spacer(),
-
-              // Emoji
               Text(emoji, style: const TextStyle(fontSize: 64)),
               const SizedBox(height: 16),
-
               Text(
                 title,
                 style: const TextStyle(
@@ -298,8 +315,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-
-              // Countdown
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -313,8 +328,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 ],
               ),
               const SizedBox(height: 28),
-
-              // Progress bar
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -349,14 +362,21 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-
               if (unlockStr.isNotEmpty)
                 Text(
                   'Unlocks on $unlockStr',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.45), fontSize: 13),
+                      color: Colors.white.withOpacity(0.45),
+                      fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
+              const SizedBox(height: 16),
+              Text(
+                '🔒 All memories are end-to-end encrypted.',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.2), fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
               const Spacer(),
             ],
           ),
@@ -393,7 +413,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Widget _buildUnlockReady() {
-    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
 
     return Scaffold(
@@ -419,11 +440,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           child: Column(
             children: [
               const Spacer(),
-
-              // Emoji
               Text(emoji, style: const TextStyle(fontSize: 72)),
               const SizedBox(height: 22),
-
               Text(
                 title,
                 style: const TextStyle(
@@ -440,7 +458,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -467,12 +484,18 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Widget _buildRevealed() {
-    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final desc = (_capsuleData?['description'] ?? '').toString();
-    final unlockStr = _unlockDate != null
-        ? DateFormat('MMMM d, yyyy').format(_unlockDate!)
+
+    final sealedStr = _createdAt != null
+        ? DateFormat('MMM d, yyyy').format(_createdAt!)
         : '';
+    final openedStr = _unlockDate != null
+        ? DateFormat('MMM d, yyyy').format(_unlockDate!)
+        : '';
+    final timeWaited = _timeWaited();
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -485,7 +508,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
             style: const TextStyle(
                 fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
-          // Share button
           IconButton(
             icon: const Icon(Icons.ios_share_outlined),
             onPressed: _share,
@@ -499,14 +521,13 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       body: Stack(
         children: [
           SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Emoji
                   Text(emoji, style: const TextStyle(fontSize: 64)),
                   const SizedBox(height: 16),
-
                   Text(
                     title,
                     style: const TextStyle(
@@ -515,10 +536,18 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                         fontWeight: FontWeight.w800),
                     textAlign: TextAlign.center,
                   ),
-
-                  // Unlock date prominent
-                  if (unlockStr.isNotEmpty) ...[
-                    const SizedBox(height: 8),
+                  const SizedBox(height: 12),
+                  if (sealedStr.isNotEmpty && openedStr.isNotEmpty) ...[
+                    Text(
+                      'Sealed $sealedStr  →  Opened $openedStr',
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.4),
+                          fontSize: 12),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (openedStr.isNotEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
@@ -527,15 +556,46 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '🔓 Opened on $unlockStr',
+                        '🔓 Opened on $openedStr',
                         style: TextStyle(
                             color: AppTheme.green.withOpacity(0.9),
                             fontSize: 12,
                             fontWeight: FontWeight.w500),
                       ),
                     ),
+                  if (timeWaited.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 14, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        children: [
+                          const Text('⏳',
+                              style: TextStyle(fontSize: 24)),
+                          const SizedBox(height: 6),
+                          Text(
+                            'You waited $timeWaited',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Worth the wait.',
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.4),
+                                fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
-
                   if (desc.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -551,17 +611,15 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             color: Colors.white.withOpacity(0.8),
                             height: 1.5,
                             fontSize: 14),
-                        textAlign: TextAlign.center,
+                        textAlign: TextAlign.left,
                       ),
                     ),
                   ],
-
                   const SizedBox(height: 28),
-
                   SizedBox(
                     width: double.infinity,
                     height: 52,
-                    child: OutlinedButton.icon(
+                    child: ElevatedButton.icon(
                       onPressed: () => Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -569,40 +627,28 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                               capsuleId: widget.capsuleId),
                         ),
                       ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
                       ),
                       icon: const Icon(Icons.photo_library_outlined),
                       label: const Text('View Memories',
                           style: TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w600)),
+                              fontWeight: FontWeight.w700)),
                     ),
-                  ),
-
-                  const Spacer(),
-
-                  Text(
-                    '🔒 All memories are end-to-end encrypted.',
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.25),
-                        fontSize: 12),
-                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
             ),
           ),
-
-          // Confetti
           Align(
             alignment: Alignment.topCenter,
             child: ConfettiWidget(
               confettiController: _confettiController,
-              blastDirection: pi / 2,
               blastDirectionality: BlastDirectionality.explosive,
               numberOfParticles: 30,
               gravity: 0.3,

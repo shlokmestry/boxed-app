@@ -28,7 +28,6 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    // Clear any stale session first
     try {
       await _account.deleteSession(sessionId: 'current');
     } catch (_) {}
@@ -40,7 +39,6 @@ class AuthService {
 
     final user = await _account.get();
 
-    // Check if profile exists — if not, account was deleted
     final docs = await _db.listDocuments(
       databaseId: AppwriteConstants.databaseId,
       collectionId: AppwriteConstants.usersTable,
@@ -48,7 +46,6 @@ class AuthService {
     );
 
     if (docs.documents.isEmpty) {
-      // Kill session and block login
       try {
         await _account.deleteSession(sessionId: 'current');
       } catch (_) {}
@@ -72,7 +69,6 @@ class AuthService {
       password: password,
     );
 
-    // Clear any stale session before creating a new one
     try {
       await _account.deleteSession(sessionId: 'current');
     } catch (_) {}
@@ -173,7 +169,8 @@ class AuthService {
     }
   }
 
-  Future<void> updateProfile({
+  // ✅ Renamed to match profile_screen.dart call
+  Future<void> updateUserProfile({
     required String userId,
     required String displayName,
     required String bio,
@@ -230,7 +227,7 @@ class AuthService {
       }
     } catch (_) {}
 
-    // 3. Disable the Appwrite auth account so same email can't log in
+    // 3. Disable the Appwrite auth account
     try {
       await _account.updateStatus();
     } catch (_) {}

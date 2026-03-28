@@ -70,15 +70,18 @@ class _AuthScreenState extends State<AuthScreen>
     });
 
     if (email.isEmpty) {
-      setState(() => _emailError = 'You forgot the most important part, your email.');
+      setState(() => _emailError =
+          'You forgot the most important part, your email.');
       return;
     }
     if (!email.contains('@')) {
-      setState(() => _emailError = 'Pretty sure emails need an @ symbol somewhere in there.');
+      setState(() => _emailError =
+          'Pretty sure emails need an @ symbol somewhere in there.');
       return;
     }
     if (password.length < 8) {
-      setState(() => _passwordError = '8 chars minimum. Secrets deserve better.');
+      setState(() =>
+          _passwordError = '8 chars minimum. Secrets deserve better.');
       return;
     }
 
@@ -88,7 +91,13 @@ class _AuthScreenState extends State<AuthScreen>
       final success = await auth.login(email: email, password: password);
       if (!mounted) return;
       if (success) {
-        Navigator.pushReplacementNamed(context, AppRouter.home);
+        // ✅ Check username after login — same as splash screen does
+        final hasUsername = await auth.checkUsername();
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(
+          context,
+          hasUsername ? AppRouter.home : AppRouter.chooseUsername,
+        );
       } else {
         setState(() => _emailError = auth.error);
       }
@@ -126,7 +135,9 @@ class _AuthScreenState extends State<AuthScreen>
 
                   Center(
                     child: Text(
-                      _isLogin ? 'Welcome back to Boxed' : 'Welcome to Boxed',
+                      _isLogin
+                          ? 'Welcome back to Boxed'
+                          : 'Welcome to Boxed',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 26,
@@ -163,7 +174,8 @@ class _AuthScreenState extends State<AuthScreen>
                     hint: 'Password',
                     error: _passwordError,
                     obscure: _obscurePassword,
-                    onChanged: (_) => setState(() => _passwordError = null),
+                    onChanged: (_) =>
+                        setState(() => _passwordError = null),
                     suffix: IconButton(
                       icon: Icon(
                         _obscurePassword
@@ -171,8 +183,8 @@ class _AuthScreenState extends State<AuthScreen>
                             : Icons.visibility,
                         color: AppTheme.mutedText2,
                       ),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
+                      onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword),
                     ),
                   ),
 
@@ -235,8 +247,8 @@ class _AuthScreenState extends State<AuthScreen>
                         _isLogin
                             ? "Don't have an account? "
                             : 'Already have an account? ',
-                        style:
-                            TextStyle(color: Colors.white.withOpacity(0.6)),
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.6)),
                       ),
                       GestureDetector(
                         onTap: _toggle,

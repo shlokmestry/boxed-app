@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,7 @@ import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 import 'package:boxed_app/features/capsules/services/capsule_service.dart';
+import 'package:boxed_app/features/memories/services/memory_service.dart';
 import 'package:boxed_app/core/services/encryption_service.dart';
 import 'package:boxed_app/core/state/user_crypto_state.dart';
 
@@ -108,7 +110,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
           children: [
             Center(
               child: Container(
-                width: 36, height: 4,
+                width: 36,
+                height: 4,
                 decoration: BoxDecoration(
                   color: Colors.white24,
                   borderRadius: BorderRadius.circular(2),
@@ -146,8 +149,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Center(
-                        child: Text(e,
-                            style: const TextStyle(fontSize: 20))),
+                        child:
+                            Text(e, style: const TextStyle(fontSize: 20))),
                   ),
                 );
               },
@@ -169,12 +172,18 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
     int selectedMinute = (selectedDate.minute ~/ 5) * 5;
 
     final presets = [
-      {'label': '1 Week',   'date': now.add(const Duration(days: 7))},
-      {'label': '1 Month',  'date': DateTime(now.year, now.month + 1, now.day)},
-      {'label': '3 Months', 'date': DateTime(now.year, now.month + 3, now.day)},
-      {'label': '6 Months', 'date': DateTime(now.year, now.month + 6, now.day)},
-      {'label': '1 Year',   'date': DateTime(now.year + 1, now.month, now.day)},
-      {'label': '5 Years',  'date': DateTime(now.year + 5, now.month, now.day)},
+      {'label': '1 Week', 'date': now.add(const Duration(days: 7))},
+      {'label': '1 Month', 'date': DateTime(now.year, now.month + 1, now.day)},
+      {
+        'label': '3 Months',
+        'date': DateTime(now.year, now.month + 3, now.day)
+      },
+      {
+        'label': '6 Months',
+        'date': DateTime(now.year, now.month + 6, now.day)
+      },
+      {'label': '1 Year', 'date': DateTime(now.year + 1, now.month, now.day)},
+      {'label': '5 Years', 'date': DateTime(now.year + 5, now.month, now.day)},
     ];
 
     await showModalBottomSheet(
@@ -194,7 +203,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
               Center(
                 child: Container(
                   margin: const EdgeInsets.only(top: 12),
-                  width: 36, height: 4,
+                  width: 36,
+                  height: 4,
                   decoration: BoxDecoration(
                     color: Colors.white24,
                     borderRadius: BorderRadius.circular(2),
@@ -223,11 +233,11 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Wrap(
-                  spacing: 8, runSpacing: 8,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: presets.map((p) {
                     final d = p['date'] as DateTime;
-                    final isSelected =
-                        selectedDate.year == d.year &&
+                    final isSelected = selectedDate.year == d.year &&
                         selectedDate.month == d.month &&
                         selectedDate.day == d.day;
                     return GestureDetector(
@@ -237,12 +247,14 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: isSelected ? Colors.white : AppTheme.cardDark2,
+                          color:
+                              isSelected ? Colors.white : AppTheme.cardDark2,
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(p['label'] as String,
                             style: TextStyle(
-                              color: isSelected ? Colors.black : Colors.white,
+                              color:
+                                  isSelected ? Colors.black : Colors.white,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             )),
@@ -319,13 +331,17 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                 padding: EdgeInsets.fromLTRB(
                     24, 0, 24, 16 + MediaQuery.of(context).padding.bottom),
                 child: SizedBox(
-                  width: double.infinity, height: 52,
+                  width: double.infinity,
+                  height: 52,
                   child: OutlinedButton(
                     onPressed: () {
                       setState(() {
                         _unlockDate = DateTime(
-                          selectedDate.year, selectedDate.month,
-                          selectedDate.day, selectedHour, selectedMinute,
+                          selectedDate.year,
+                          selectedDate.month,
+                          selectedDate.day,
+                          selectedHour,
+                          selectedMinute,
                         );
                       });
                       Navigator.pop(context);
@@ -362,7 +378,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
             child: const Icon(Icons.keyboard_arrow_up_rounded,
                 color: Colors.white54, size: 24)),
         Container(
-          width: 48, height: 40,
+          width: 48,
+          height: 40,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: AppTheme.cardDark2,
@@ -396,12 +413,14 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
       final userId = auth.user!.$id;
       final userMasterKey = UserCryptoState.userMasterKey;
 
+      // 1. Generate capsule key
       final capsuleKey = await EncryptionService.generateCapsuleKey();
       final encryptedKey = await EncryptionService.encryptCapsuleKey(
         capsuleKey: capsuleKey,
         userMasterKey: userMasterKey,
       );
 
+      // 2. Create capsule in Appwrite
       final capsuleService = CapsuleService();
       final capsuleData = await capsuleService.createCapsuleWithKey(
         userId: userId,
@@ -412,7 +431,38 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
         encryptedCapsuleKey: encryptedKey,
       );
 
+      final capsuleId = capsuleData['capsuleId'] as String;
+
+      // 3. Save message as text memory if provided
+      final message = _messageController.text.trim();
+      if (message.isNotEmpty) {
+        final memoryService = MemoryService();
+        await memoryService.addTextMemory(
+          capsuleId: capsuleId,
+          userId: userId,
+          text: message,
+          capsuleKey: capsuleKey,
+        );
+      }
+
+      // 4. Save photos if any
+      if (_selectedImages.isNotEmpty) {
+        final memoryService = MemoryService();
+        for (final image in _selectedImages) {
+          await memoryService.addPhotoMemory(
+            capsuleId: capsuleId,
+            userId: userId,
+            imageFile: image,
+            capsuleKey: capsuleKey,
+          );
+        }
+      }
+
+      // 5. Update provider
       context.read<CapsuleProvider>().addCapsule(capsuleData);
+
+      // 6. Haptic feedback
+      HapticFeedback.mediumImpact();
 
       if (!mounted) return;
 
@@ -456,8 +506,14 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (await _onWillPop()) {
+          if (context.mounted) Navigator.pop(context);
+        }
+      },
       child: Scaffold(
         backgroundColor: Colors.black,
         appBar: AppBar(
@@ -484,8 +540,6 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                 child: ListView(
                   padding: const EdgeInsets.all(24),
                   children: [
-
-                    // ✅ Fixed emoji row — Expanded + scrollable list
                     _label('Choose an emoji'),
                     const SizedBox(height: 10),
                     Row(
@@ -505,7 +559,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                                     duration:
                                         const Duration(milliseconds: 200),
                                     margin: const EdgeInsets.only(right: 10),
-                                    width: 52, height: 52,
+                                    width: 52,
+                                    height: 52,
                                     decoration: BoxDecoration(
                                       color: selected
                                           ? Colors.white
@@ -528,7 +583,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                         GestureDetector(
                           onTap: _showEmojiGrid,
                           child: Container(
-                            width: 52, height: 52,
+                            width: 52,
+                            height: 52,
                             decoration: BoxDecoration(
                               color: AppTheme.cardDark2,
                               borderRadius: BorderRadius.circular(12),
@@ -550,8 +606,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                     TextFormField(
                       controller: _nameController,
                       style: const TextStyle(color: Colors.white),
-                      decoration:
-                          _inputDeco('e.g. Summer 2026, Letter to future me'),
+                      decoration: _inputDeco(
+                          'e.g. Summer 2026, Letter to future me'),
                       validator: (v) => (v == null || v.trim().isEmpty)
                           ? 'Name is required'
                           : null,
@@ -578,11 +634,14 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                         maxLines: 5,
                         minLines: 3,
                         style: const TextStyle(
-                            color: Colors.white, fontSize: 15, height: 1.5),
+                            color: Colors.white,
+                            fontSize: 15,
+                            height: 1.5),
                         decoration: const InputDecoration(
                           hintText:
                               'A note, memory, or letter to your future self...',
-                          hintStyle: TextStyle(color: AppTheme.mutedText2),
+                          hintStyle:
+                              TextStyle(color: AppTheme.mutedText2),
                           border: InputBorder.none,
                           isDense: true,
                         ),
@@ -627,7 +686,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                     Text(
                       'The capsule locks immediately and opens on this date.',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.4), fontSize: 12),
+                          color: Colors.white.withOpacity(0.4),
+                          fontSize: 12),
                     ),
                     const SizedBox(height: 28),
 
@@ -682,7 +742,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                               const SizedBox(height: 8),
                               Text('Tap to add photos',
                                   style: TextStyle(
-                                      color: Colors.white.withOpacity(0.25),
+                                      color:
+                                          Colors.white.withOpacity(0.25),
                                       fontSize: 13)),
                             ],
                           ),
@@ -718,36 +779,43 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                               ),
                               if (_coverIndex == i)
                                 Positioned(
-                                  top: 4, left: 4,
+                                  top: 4,
+                                  left: 4,
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 6, vertical: 3),
                                     decoration: BoxDecoration(
                                       color: Colors.white,
-                                      borderRadius: BorderRadius.circular(6),
+                                      borderRadius:
+                                          BorderRadius.circular(6),
                                     ),
                                     child: const Text('Cover',
                                         style: TextStyle(
                                             color: Colors.black,
                                             fontSize: 10,
-                                            fontWeight: FontWeight.w700)),
+                                            fontWeight:
+                                                FontWeight.w700)),
                                   ),
                                 ),
                               Positioned(
-                                top: 4, right: 4,
+                                top: 4,
+                                right: 4,
                                 child: GestureDetector(
                                   onTap: () => setState(() {
                                     _selectedImages.removeAt(i);
                                     if (_coverIndex == i) {
-                                      _coverIndex =
-                                          _selectedImages.isEmpty ? null : 0;
+                                      _coverIndex = _selectedImages
+                                              .isEmpty
+                                          ? null
+                                          : 0;
                                     } else if (_coverIndex != null &&
                                         _coverIndex! > i) {
                                       _coverIndex = _coverIndex! - 1;
                                     }
                                   }),
                                   child: Container(
-                                    width: 22, height: 22,
+                                    width: 22,
+                                    height: 22,
                                     decoration: const BoxDecoration(
                                         color: Colors.black,
                                         shape: BoxShape.circle),
@@ -778,7 +846,8 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                 padding: EdgeInsets.fromLTRB(
                     24, 0, 24, 20 + MediaQuery.of(context).padding.bottom),
                 child: SizedBox(
-                  width: double.infinity, height: 52,
+                  width: double.infinity,
+                  height: 52,
                   child: OutlinedButton(
                     onPressed: _isLoading ? null : _create,
                     style: OutlinedButton.styleFrom(
@@ -789,12 +858,14 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                     ),
                     child: _isLoading
                         ? const SizedBox(
-                            width: 20, height: 20,
+                            width: 20,
+                            height: 20,
                             child: CircularProgressIndicator(
                                 strokeWidth: 2, color: Colors.white))
                         : const Text('Seal it',
                             style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w600)),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600)),
                   ),
                 ),
               ),

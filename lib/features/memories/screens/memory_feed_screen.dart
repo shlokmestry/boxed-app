@@ -25,7 +25,10 @@ class _MemoryFeedScreenState extends State<MemoryFeedScreen> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final capsuleKey = CapsuleCryptoState.getKey(widget.capsuleId);
       final raw = await _service.fetchMemories(widget.capsuleId);
@@ -56,10 +59,39 @@ class _MemoryFeedScreenState extends State<MemoryFeedScreen> {
         }
       }
 
-      setState(() { _memories = result; _loading = false; });
+      setState(() {
+        _memories = result;
+        _loading = false;
+      });
     } catch (e) {
-      setState(() { _error = e.toString(); _loading = false; });
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
     }
+  }
+
+  void _openPhoto(BuildContext context, Uint8List bytes) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.memory(bytes),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -75,20 +107,26 @@ class _MemoryFeedScreenState extends State<MemoryFeedScreen> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Colors.white))
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.white))
           : _error != null
-              ? Center(child: Text(_error!,
-                  style: const TextStyle(color: AppTheme.red)))
+              ? Center(
+                  child: Text(_error!,
+                      style: const TextStyle(color: AppTheme.red)))
               : _memories.isEmpty
                   ? Center(
-                      child: Text('No memories yet.',
-                          style: TextStyle(
-                              color: Colors.white.withOpacity(0.4),
-                              fontSize: 16)))
+                      child: Text(
+                        'No memories yet.',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 16),
+                      ),
+                    )
                   : ListView.builder(
                       padding: const EdgeInsets.all(20),
                       itemCount: _memories.length,
-                      itemBuilder: (_, i) => _buildMemoryCard(_memories[i]),
+                      itemBuilder: (_, i) =>
+                          _buildMemoryCard(_memories[i]),
                     ),
     );
   }
@@ -111,14 +149,47 @@ class _MemoryFeedScreenState extends State<MemoryFeedScreen> {
                       color: Colors.white, fontSize: 15, height: 1.6),
                 ),
               )
-            : Image.memory(
-                memory.bytes!,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('[Could not display image]',
-                      style: TextStyle(color: AppTheme.mutedText)),
+            : GestureDetector(
+                onTap: () => _openPhoto(context, memory.bytes!),
+                child: Stack(
+                  children: [
+                    Image.memory(
+                      memory.bytes!,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (_, __, ___) => const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('[Could not display image]',
+                            style:
+                                TextStyle(color: AppTheme.mutedText)),
+                      ),
+                    ),
+                    // Tap hint overlay
+                    Positioned(
+                      bottom: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.zoom_in,
+                                color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text('Tap to expand',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
       ),

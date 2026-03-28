@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:boxed_app/core/router/app_router.dart';
 import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
+import 'package:boxed_app/features/auth/services/auth_service.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 
 enum CapsuleFilter { all, upcoming, unlocked }
@@ -18,8 +21,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
+  final _storage = const FlutterSecureStorage();
   String _query = '';
   CapsuleFilter _filter = CapsuleFilter.all;
+  String _displayName = '';
 
   @override
   void initState() {
@@ -27,7 +32,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _searchController.addListener(() {
       setState(() => _query = _searchController.text.trim().toLowerCase());
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _load();
+      _loadDisplayName();
+      await _maybeShowWelcome();
+    });
   }
 
   @override
@@ -41,6 +50,44 @@ class _HomeScreenState extends State<HomeScreen> {
     if (auth.user != null) {
       context.read<CapsuleProvider>().loadCapsules(auth.user!.$id);
     }
+  }
+
+  Future<void> _loadDisplayName() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.user == null) return;
+    try {
+      final data =
+          await AuthService().getUserProfile(auth.user!.$id);
+      final username =
+          (data?['username'] as String? ?? '').trim();
+      final display =
+          (data?['displayName'] as String? ?? '').trim();
+      if (mounted) {
+        setState(
+            () => _displayName = username.isNotEmpty ? username : display);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _maybeShowWelcome() async {
+    final seen = await _storage.read(key: 'welcome_seen');
+    if (seen == 'true' || !mounted) return;
+    await _storage.write(key: 'welcome_seen', value: 'true');
+    if (!mounted) return;
+    _showWelcomeSheet();
+  }
+
+  void _showWelcomeSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const _WelcomeSheet(),
+    ).then((_) async {
+      if (!mounted) return;
+      await Navigator.pushNamed(context, AppRouter.createCapsule);
+      _load();
+    });
   }
 
   Future<void> _refresh() async {
@@ -59,7 +106,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         backgroundColor: const Color(0xFF1A1A1A),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10)),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -96,7 +144,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return list;
   }
 
-  // Returns the soonest upcoming capsule
   Map<String, dynamic>? _nextUnlock(List<Map<String, dynamic>> capsules) {
     final now = DateTime.now();
     final upcoming = capsules.where((c) {
@@ -117,19 +164,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _nextUnlockLabel(DateTime unlock) {
     final diff = unlock.difference(DateTime.now());
-    if (diff.inDays >= 1) return '⏳ Next unlock in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
-    if (diff.inHours >= 1) return '⏳ Next unlock in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+    if (diff.inDays >= 1) {
+      return '⏳ Next unlock in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
+    }
+    if (diff.inHours >= 1) {
+      return '⏳ Next unlock in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+    }
     return '⏳ Next unlock in ${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'}';
   }
 
   Future<void> _confirmDelete(
       BuildContext context, String capsuleId, String name) async {
+    HapticFeedback.mediumImpact();
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete capsule?',
             style: TextStyle(
                 color: Colors.white, fontWeight: FontWeight.w700)),
@@ -162,10 +214,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final capsuleProvider = context.watch<CapsuleProvider>();
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
-    // Greeting from email or username
-    final rawName = auth.user?.email?.split('@').first ?? 'there';
-    final greeting =
-        rawName[0].toUpperCase() + rawName.substring(1).toLowerCase();
+    // ✅ Use loaded display name, fall back to email prefix
+    final greeting = _displayName.isNotEmpty
+        ? _displayName
+        : (auth.user?.email?.split('@').first ?? 'there');
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -173,18 +225,13 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Hey $greeting 👋',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+        title: Text(
+          'Hey $greeting 👋',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         actions: [
           GestureDetector(
@@ -213,6 +260,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       floatingActionButton: GestureDetector(
         onTap: () async {
+          HapticFeedback.lightImpact();
           await Navigator.pushNamed(context, AppRouter.createCapsule);
           _load();
         },
@@ -257,7 +305,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.white, fontSize: 15),
                       decoration: const InputDecoration(
                         hintText: 'Search capsules...',
-                        hintStyle: TextStyle(color: AppTheme.mutedText2),
+                        hintStyle:
+                            TextStyle(color: AppTheme.mutedText2),
                         border: InputBorder.none,
                         isDense: true,
                       ),
@@ -319,7 +368,8 @@ class _HomeScreenState extends State<HomeScreen> {
               Builder(builder: (_) {
                 final next = _nextUnlock(capsuleProvider.capsules);
                 if (next == null) return const SizedBox.shrink();
-                final unlockDate = DateTime.parse(next['unlockDate']);
+                final unlockDate =
+                    DateTime.parse(next['unlockDate']);
                 return Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 16),
@@ -343,7 +393,6 @@ class _HomeScreenState extends State<HomeScreen> {
               }),
             ],
 
-            // List
             Expanded(
               child: _buildBody(capsuleProvider, bottomPad),
             ),
@@ -386,19 +435,29 @@ class _HomeScreenState extends State<HomeScreen> {
         );
 
       case CapsuleLoadState.empty:
-        return _emptyState();
-
-      // ✅ idle now shows shimmer instead of blank flash
       case CapsuleLoadState.idle:
-        return ListView.builder(
-          padding: EdgeInsets.only(bottom: bottomPad + 80),
-          itemCount: 5,
-          itemBuilder: (_, __) => const _ShimmerCard(),
+        return _EmptyState(
+          filter: _filter,
+          onCreateTap: () async {
+            HapticFeedback.lightImpact();
+            await Navigator.pushNamed(context, AppRouter.createCapsule);
+            _load();
+          },
         );
 
       case CapsuleLoadState.loaded:
         final filtered = _filtered(provider.capsules);
-        if (filtered.isEmpty) return _emptyState();
+        if (filtered.isEmpty) {
+          return _EmptyState(
+            filter: _filter,
+            onCreateTap: () async {
+              HapticFeedback.lightImpact();
+              await Navigator.pushNamed(
+                  context, AppRouter.createCapsule);
+              _load();
+            },
+          );
+        }
         return RefreshIndicator(
           onRefresh: _refresh,
           color: Colors.white,
@@ -424,22 +483,259 @@ class _HomeScreenState extends State<HomeScreen> {
         );
     }
   }
+}
 
-  Widget _emptyState() {
-    final messages = {
-      CapsuleFilter.all: 'No capsules yet.\nTap + to create your first one.',
-      CapsuleFilter.upcoming: 'No upcoming capsules.',
-      CapsuleFilter.unlocked: 'Nothing unlocked yet.\nGive it time.',
-    };
-    return Center(
-      child: Text(
-        messages[_filter] ?? 'Nothing here.',
-        textAlign: TextAlign.center,
-        style: const TextStyle(color: AppTheme.mutedText2, fontSize: 16),
+// ─── Welcome Sheet ────────────────────────────────────────────────────────────
+
+class _WelcomeSheet extends StatelessWidget {
+  const _WelcomeSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF111111),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(28, 12, 28, 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 32),
+          const Text('📦', style: TextStyle(fontSize: 56)),
+          const SizedBox(height: 20),
+          const Text(
+            'Welcome to Boxed',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Seal memories today - photos, notes, anything that matters.\nSet a date. Open it when the time is right.',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.55),
+              fontSize: 14,
+              height: 1.6,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          _featureRow('🔒', 'End-to-end encrypted',
+              'Your memories, only yours'),
+          const SizedBox(height: 14),
+          _featureRow('⏳', 'Time-locked capsules',
+              'Sealed until the day you choose'),
+          const SizedBox(height: 14),
+          _featureRow('🎉', 'The reveal moment',
+              'Confetti when you finally open it'),
+          const SizedBox(height: 36),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Create my first capsule →',
+                style: TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _featureRow(String emoji, String title, String subtitle) {
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(emoji, style: const TextStyle(fontSize: 20)),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(subtitle,
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.4),
+                    fontSize: 12)),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Animated Empty State ─────────────────────────────────────────────────────
+
+class _EmptyState extends StatefulWidget {
+  final CapsuleFilter filter;
+  final VoidCallback onCreateTap;
+
+  const _EmptyState({required this.filter, required this.onCreateTap});
+
+  @override
+  State<_EmptyState> createState() => _EmptyStateState();
+}
+
+class _EmptyStateState extends State<_EmptyState>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fade;
+  late Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 500));
+    _fade =
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.08),
+      end: Offset.zero,
+    ).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAll = widget.filter == CapsuleFilter.all;
+    final isUpcoming = widget.filter == CapsuleFilter.upcoming;
+
+    final emoji = isAll
+        ? '📦'
+        : isUpcoming
+            ? '⏳'
+            : '🔓';
+
+    final headline = isAll
+        ? 'Seal your first memory'
+        : isUpcoming
+            ? 'No upcoming capsules'
+            : 'Nothing unlocked yet';
+
+    final subtext = isAll
+        ? 'Drop in photos, notes or voice memos.\nOpen them when the time is right.'
+        : isUpcoming
+            ? 'Create a capsule and set a future unlock date.'
+            : 'Sealed capsules will appear here once they open.';
+
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(
+        position: _slide,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                  child: Center(
+                    child: Text(emoji,
+                        style: const TextStyle(fontSize: 38)),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  headline,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  subtext,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.4),
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (isAll) ...[
+                  const SizedBox(height: 28),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      onPressed: widget.onCreateTap,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                      icon: const Icon(Icons.add, size: 20),
+                      label: const Text(
+                        'Create your first capsule',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
+
+// ─── Shimmer Card ─────────────────────────────────────────────────────────────
 
 class _ShimmerCard extends StatelessWidget {
   const _ShimmerCard();
@@ -463,6 +759,8 @@ class _ShimmerCard extends StatelessWidget {
   }
 }
 
+// ─── Capsule Card ─────────────────────────────────────────────────────────────
+
 class _CapsuleCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final VoidCallback onTap;
@@ -477,13 +775,21 @@ class _CapsuleCard extends StatelessWidget {
   String _timeLabel(DateTime unlockDate, bool isUnlocked) {
     if (isUnlocked) {
       final diff = DateTime.now().difference(unlockDate);
-      if (diff.inDays >= 1) return 'Opened ${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
-      if (diff.inHours >= 1) return 'Opened ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+      if (diff.inDays >= 1) {
+        return 'Opened ${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+      }
+      if (diff.inHours >= 1) {
+        return 'Opened ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+      }
       return 'Just opened';
     } else {
       final diff = unlockDate.difference(DateTime.now());
-      if (diff.inDays >= 1) return 'Opens in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
-      if (diff.inHours >= 1) return 'Opens in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+      if (diff.inDays >= 1) {
+        return 'Opens in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
+      }
+      if (diff.inHours >= 1) {
+        return 'Opens in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
+      }
       return 'Opens in ${diff.inMinutes} min';
     }
   }
@@ -513,7 +819,6 @@ class _CapsuleCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppTheme.cardDark,
             borderRadius: BorderRadius.circular(16),
-            // Subtle left accent border
             border: Border(
               left: BorderSide(
                 color: isUnlocked
@@ -579,7 +884,9 @@ class _CapsuleCard extends StatelessWidget {
                     child: Text(
                       isUnlocked ? 'Unlocked' : 'Locked',
                       style: TextStyle(
-                        color: isUnlocked ? AppTheme.green : AppTheme.blue,
+                        color: isUnlocked
+                            ? AppTheme.green
+                            : AppTheme.blue,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
