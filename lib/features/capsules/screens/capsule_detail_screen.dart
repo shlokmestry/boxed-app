@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -41,7 +42,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     super.initState();
     _confettiController =
         ConfettiController(duration: const Duration(seconds: 3));
-    // ✅ Fix: avoid setState during build
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -102,8 +102,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         setState(() => _stage = _Stage.locked);
       } else {
         final isRevealed = data['isRevealed'] == true;
-        setState(
-            () => _stage = isRevealed ? _Stage.revealed : _Stage.unlockReady);
+        setState(() =>
+            _stage = isRevealed ? _Stage.revealed : _Stage.unlockReady);
       }
     } catch (e) {
       setState(() {
@@ -135,6 +135,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Future<void> _reveal() async {
+    // ✅ Haptic feedback on reveal
+    HapticFeedback.heavyImpact();
     await _capsuleService.markRevealed(widget.capsuleId);
     _confettiController.play();
     if (mounted) setState(() => _stage = _Stage.revealed);
@@ -145,8 +147,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete capsule?',
             style: TextStyle(
                 color: Colors.white, fontWeight: FontWeight.w700)),
@@ -174,7 +176,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   void _share() {
-    final title = (_capsuleData?['name'] ?? 'My Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'My Capsule').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy').format(_unlockDate!)
         : '';
@@ -191,7 +194,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     return (elapsed / total).clamp(0.0, 1.0);
   }
 
-  // How many days between createdAt and unlockDate
   String _timeWaited() {
     if (_createdAt == null || _unlockDate == null) return '';
     final days = _unlockDate!.difference(_createdAt!).inDays;
@@ -214,8 +216,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       case _Stage.loading:
         return const Scaffold(
           backgroundColor: Colors.black,
-          body: Center(
-              child: CircularProgressIndicator(color: Colors.white)),
+          body:
+              Center(child: CircularProgressIndicator(color: Colors.white)),
         );
       case _Stage.error:
         return Scaffold(
@@ -264,7 +266,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     final hours = _remaining.inHours % 24;
     final minutes = _remaining.inMinutes % 60;
     final seconds = _remaining.inSeconds % 60;
-    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy • h:mm a').format(_unlockDate!)
@@ -294,10 +297,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           child: Column(
             children: [
               const Spacer(),
-
               Text(emoji, style: const TextStyle(fontSize: 64)),
               const SizedBox(height: 16),
-
               Text(
                 title,
                 style: const TextStyle(
@@ -314,8 +315,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-
-              // Countdown
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -329,8 +328,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 ],
               ),
               const SizedBox(height: 28),
-
-              // Progress bar
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -365,16 +362,14 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-
               if (unlockStr.isNotEmpty)
                 Text(
                   'Unlocks on $unlockStr',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.45), fontSize: 13),
+                      color: Colors.white.withOpacity(0.45),
+                      fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
-
-              // Security note fits naturally on locked screen
               const SizedBox(height: 16),
               Text(
                 '🔒 All memories are end-to-end encrypted.',
@@ -382,7 +377,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                     color: Colors.white.withOpacity(0.2), fontSize: 12),
                 textAlign: TextAlign.center,
               ),
-
               const Spacer(),
             ],
           ),
@@ -419,7 +413,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Widget _buildUnlockReady() {
-    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
 
     return Scaffold(
@@ -445,10 +440,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           child: Column(
             children: [
               const Spacer(),
-
               Text(emoji, style: const TextStyle(fontSize: 72)),
               const SizedBox(height: 22),
-
               Text(
                 title,
                 style: const TextStyle(
@@ -460,11 +453,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               const SizedBox(height: 10),
               Text(
                 'Your memories are ready to be revealed.',
-                style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                style:
+                    TextStyle(color: Colors.white.withOpacity(0.7)),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -491,7 +484,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Widget _buildRevealed() {
-    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title =
+        (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final desc = (_capsuleData?['description'] ?? '').toString();
 
@@ -526,17 +520,14 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       ),
       body: Stack(
         children: [
-      
           SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Emoji
                   Text(emoji, style: const TextStyle(fontSize: 64)),
                   const SizedBox(height: 16),
-
                   Text(
                     title,
                     style: const TextStyle(
@@ -546,8 +537,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
-
-                  // Sealed → Opened date line
                   if (sealedStr.isNotEmpty && openedStr.isNotEmpty) ...[
                     Text(
                       'Sealed $sealedStr  →  Opened $openedStr',
@@ -558,8 +547,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                     ),
                     const SizedBox(height: 10),
                   ],
-
-                  // Opened badge
                   if (openedStr.isNotEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -576,8 +563,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             fontWeight: FontWeight.w500),
                       ),
                     ),
-
-                  // "You waited X days" emotional stat
                   if (timeWaited.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -590,10 +575,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                       ),
                       child: Column(
                         children: [
-                          Text(
-                            '⏳',
-                            style: const TextStyle(fontSize: 24),
-                          ),
+                          const Text('⏳',
+                              style: TextStyle(fontSize: 24)),
                           const SizedBox(height: 6),
                           Text(
                             'You waited $timeWaited',
@@ -613,8 +596,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                       ),
                     ),
                   ],
-
-                  // Description card — left aligned
                   if (desc.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -630,15 +611,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             color: Colors.white.withOpacity(0.8),
                             height: 1.5,
                             fontSize: 14),
-                 
                         textAlign: TextAlign.left,
                       ),
                     ),
                   ],
-
                   const SizedBox(height: 28),
-
-                
                   SizedBox(
                     width: double.infinity,
                     height: 52,
@@ -668,8 +645,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               ),
             ),
           ),
-
-          
           Align(
             alignment: Alignment.topCenter,
             child: ConfettiWidget(

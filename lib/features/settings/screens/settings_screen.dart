@@ -23,23 +23,12 @@ class SettingsScreen extends StatelessWidget {
         elevation: 0,
         centerTitle: false,
         title: const Text('Settings',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            style:
+                TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
         children: [
-
-          // ACCOUNT
-          _sectionLabel('ACCOUNT'),
-          const SizedBox(height: 10),
-          _SettingsCard(children: [
-            _SettingsTile(
-              icon: Icons.lock_outline,
-              label: 'Change Password',
-              onTap: () => Navigator.pushNamed(context, AppRouter.changePassword),
-            ),
-          ]),
-          const SizedBox(height: 24),
 
           // MORE
           _sectionLabel('MORE'),
@@ -146,7 +135,8 @@ class SettingsScreen extends StatelessWidget {
           children: [
             Center(
               child: Container(
-                width: 36, height: 4,
+                width: 36,
+                height: 4,
                 decoration: BoxDecoration(
                   color: Colors.white24,
                   borderRadius: BorderRadius.circular(2),
@@ -210,24 +200,27 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Text('Sign out?',
             style: TextStyle(
                 color: Colors.white, fontWeight: FontWeight.w700)),
         content: Text('You can always log back in.',
-            style: TextStyle(color: Colors.white.withOpacity(0.6))),
+            style:
+                TextStyle(color: Colors.white.withOpacity(0.6))),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text('Cancel',
-                style: TextStyle(color: Colors.white.withOpacity(0.6))),
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.6))),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Sign Out',
                 style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700)),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -244,8 +237,8 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete account?',
             style: TextStyle(
                 color: Colors.white, fontWeight: FontWeight.w700)),
@@ -257,11 +250,13 @@ class SettingsScreen extends StatelessWidget {
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: Text('Cancel',
-                style: TextStyle(color: Colors.white.withOpacity(0.6))),
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.6))),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: AppTheme.red),
+            style:
+                TextButton.styleFrom(foregroundColor: AppTheme.red),
             child: const Text('Delete',
                 style: TextStyle(fontWeight: FontWeight.w700)),
           ),
@@ -300,7 +295,6 @@ class _SettingsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        // ✅ Border removed
       ),
       child: Column(children: children),
     );
@@ -324,7 +318,6 @@ class _SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Destructive = red, muted = grey, normal = white
     final Color labelColor = destructive
         ? AppTheme.red
         : muted
