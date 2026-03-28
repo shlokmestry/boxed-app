@@ -149,8 +149,7 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Center(
-                        child:
-                            Text(e, style: const TextStyle(fontSize: 20))),
+                        child: Text(e, style: const TextStyle(fontSize: 20))),
                   ),
                 );
               },
@@ -253,8 +252,7 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                         ),
                         child: Text(p['label'] as String,
                             style: TextStyle(
-                              color:
-                                  isSelected ? Colors.black : Colors.white,
+                              color: isSelected ? Colors.black : Colors.white,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             )),
@@ -408,6 +406,11 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
 
     setState(() => _isLoading = true);
 
+    // ✅ Capture messenger and navigator BEFORE any async work so we never
+    // call them on a deactivated context after the widget is popped.
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
     try {
       final auth = context.read<AuthProvider>();
       final userId = auth.user!.$id;
@@ -459,14 +462,14 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
       }
 
       // 5. Update provider
-      context.read<CapsuleProvider>().addCapsule(capsuleData);
+      if (mounted) {
+        context.read<CapsuleProvider>().addCapsule(capsuleData);
+      }
 
-      // 6. Haptic feedback
+      // 6. Haptic + success snack — use saved refs, safe after pop
       HapticFeedback.mediumImpact();
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: const Row(
             children: [
@@ -487,18 +490,19 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
         ),
       );
 
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (!mounted) return;
-      Navigator.pop(context);
+      navigator.pop();
     } catch (e) {
-      if (!mounted) return;
-      _showSnack('Failed to seal capsule: $e');
+      // ✅ Only show error snack if still mounted
+      if (mounted) {
+        _showSnack('Failed to seal capsule: $e');
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   void _showSnack(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: AppTheme.cardDark2),
     );

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:typed_data';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,7 +12,7 @@ import 'package:boxed_app/core/state/user_crypto_state.dart';
 import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 import 'package:boxed_app/features/capsules/services/capsule_service.dart';
-import 'package:boxed_app/features/memories/screens/memory_feed_screen.dart';
+import 'package:boxed_app/features/memories/services/memory_service.dart';
 
 class CapsuleDetailScreen extends StatefulWidget {
   final String capsuleId;
@@ -34,8 +34,12 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   Duration _remaining = Duration.zero;
   Timer? _timer;
 
+  List<_Memory> _memories = [];
+  bool _memoriesLoading = false;
+
   late ConfettiController _confettiController;
   final _capsuleService = CapsuleService();
+  final _memoryService = MemoryService();
 
   @override
   void initState() {
@@ -102,14 +106,58 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         setState(() => _stage = _Stage.locked);
       } else {
         final isRevealed = data['isRevealed'] == true;
-        setState(() =>
-            _stage = isRevealed ? _Stage.revealed : _Stage.unlockReady);
+        if (isRevealed) {
+          setState(() => _stage = _Stage.revealed);
+          _loadMemories();
+        } else {
+          setState(() => _stage = _Stage.unlockReady);
+        }
       }
     } catch (e) {
       setState(() {
         _stage = _Stage.error;
         _error = e.toString();
       });
+    }
+  }
+
+  Future<void> _loadMemories() async {
+    setState(() => _memoriesLoading = true);
+    try {
+      final capsuleKey = CapsuleCryptoState.getKey(widget.capsuleId);
+      final raw = await _memoryService.fetchMemories(widget.capsuleId);
+      final List<_Memory> result = [];
+
+      for (final m in raw) {
+        final type = m['type'] as String;
+        if (type == 'text') {
+          try {
+            final text = await _memoryService.decryptTextMemory(
+              encryptedContent: m['content'] as String,
+              capsuleKey: capsuleKey,
+            );
+            result.add(_Memory.text(text));
+          } catch (_) {
+            result.add(_Memory.text('[Unable to decrypt]'));
+          }
+        } else if (type == 'photo') {
+          try {
+            final bytes = await _memoryService.decryptPhotoMemory(
+              fileId: m['fileId'] as String,
+              capsuleKey: capsuleKey,
+            );
+            result.add(_Memory.photo(bytes));
+          } catch (_) {
+            result.add(_Memory.text('[Unable to decrypt photo]'));
+          }
+        }
+      }
+
+      if (mounted) setState(() => _memories = result);
+    } catch (_) {
+      // Silently fail
+    } finally {
+      if (mounted) setState(() => _memoriesLoading = false);
     }
   }
 
@@ -135,11 +183,13 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 
   Future<void> _reveal() async {
-    // ✅ Haptic feedback on reveal
     HapticFeedback.heavyImpact();
     await _capsuleService.markRevealed(widget.capsuleId);
     _confettiController.play();
-    if (mounted) setState(() => _stage = _Stage.revealed);
+    if (mounted) {
+      setState(() => _stage = _Stage.revealed);
+      _loadMemories();
+    }
   }
 
   Future<void> _delete() async {
@@ -175,14 +225,42 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     if (mounted) Navigator.pop(context);
   }
 
+  // ✅ Fixed: provide sharePositionOrigin so iOS share sheet
+  // knows where to anchor — without it the PlatformException crashes.
   void _share() {
-    final title =
-        (_capsuleData?['name'] ?? 'My Capsule').toString();
+    final title = (_capsuleData?['name'] ?? 'My Capsule').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy').format(_unlockDate!)
         : '';
+    final box = context.findRenderObject() as RenderBox?;
     Share.share(
       '📦 I just opened my Boxed capsule — "$title" — sealed on $unlockStr. Check out Boxed!',
+      sharePositionOrigin: box != null
+          ? box.localToGlobal(Offset.zero) & box.size
+          : Rect.zero,
+    );
+  }
+
+  void _openPhoto(Uint8List bytes) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.memory(bytes),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -210,14 +288,19 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
 
   String _pad(int n) => n.toString().padLeft(2, '0');
 
+  int get _photoCount =>
+      _memories.where((m) => m.type == _MemoryType.photo).length;
+  int get _textCount =>
+      _memories.where((m) => m.type == _MemoryType.text).length;
+
   @override
   Widget build(BuildContext context) {
     switch (_stage) {
       case _Stage.loading:
         return const Scaffold(
           backgroundColor: Colors.black,
-          body:
-              Center(child: CircularProgressIndicator(color: Colors.white)),
+          body: Center(
+              child: CircularProgressIndicator(color: Colors.white)),
         );
       case _Stage.error:
         return Scaffold(
@@ -261,13 +344,14 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     }
   }
 
+  // ── Locked ──────────────────────────────────────────────────────────────────
+
   Widget _buildLocked() {
     final days = _remaining.inDays;
     final hours = _remaining.inHours % 24;
     final minutes = _remaining.inMinutes % 60;
     final seconds = _remaining.inSeconds % 60;
-    final title =
-        (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy • h:mm a').format(_unlockDate!)
@@ -299,14 +383,12 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               const Spacer(),
               Text(emoji, style: const TextStyle(fontSize: 64)),
               const SizedBox(height: 16),
-              Text(
-                title,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
+              Text(title,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 10),
               Text(
                 'Your memories are sealed inside. Almost time.',
@@ -334,18 +416,15 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      Text('Wait progress',
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                              fontSize: 12)),
                       Text(
-                        'Wait progress',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 12),
-                      ),
-                      Text(
-                        '${(progress * 100).toStringAsFixed(0)}% done',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 12),
-                      ),
+                          '${(progress * 100).toStringAsFixed(0)}% done',
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                              fontSize: 12)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -363,20 +442,16 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               ),
               const SizedBox(height: 20),
               if (unlockStr.isNotEmpty)
-                Text(
-                  'Unlocks on $unlockStr',
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
-                      fontSize: 13),
-                  textAlign: TextAlign.center,
-                ),
+                Text('Unlocks on $unlockStr',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.45),
+                        fontSize: 13),
+                    textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              Text(
-                '🔒 All memories are end-to-end encrypted.',
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.2), fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
+              Text('🔒 All memories are end-to-end encrypted.',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.2), fontSize: 12),
+                  textAlign: TextAlign.center),
               const Spacer(),
             ],
           ),
@@ -412,9 +487,10 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     );
   }
 
+  // ── Unlock Ready ─────────────────────────────────────────────────────────────
+
   Widget _buildUnlockReady() {
-    final title =
-        (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
 
     return Scaffold(
@@ -442,19 +518,16 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               const Spacer(),
               Text(emoji, style: const TextStyle(fontSize: 72)),
               const SizedBox(height: 22),
-              Text(
-                title,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
+              Text(title,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 10),
               Text(
                 'Your memories are ready to be revealed.',
-                style:
-                    TextStyle(color: Colors.white.withOpacity(0.7)),
+                style: TextStyle(color: Colors.white.withOpacity(0.7)),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -483,9 +556,10 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     );
   }
 
+  // ── Revealed ─────────────────────────────────────────────────────────────────
+
   Widget _buildRevealed() {
-    final title =
-        (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
     final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
     final desc = (_capsuleData?['description'] ?? '').toString();
 
@@ -496,6 +570,18 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         ? DateFormat('MMM d, yyyy').format(_unlockDate!)
         : '';
     final timeWaited = _timeWaited();
+
+    String memorySummary = '';
+    if (!_memoriesLoading && _memories.isNotEmpty) {
+      final parts = <String>[];
+      if (_photoCount > 0) {
+        parts.add('$_photoCount photo${_photoCount > 1 ? 's' : ''}');
+      }
+      if (_textCount > 0) {
+        parts.add('$_textCount note${_textCount > 1 ? 's' : ''}');
+      }
+      memorySummary = parts.join(' · ');
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -520,131 +606,269 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       ),
       body: Stack(
         children: [
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(emoji, style: const TextStyle(fontSize: 64)),
-                  const SizedBox(height: 16),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800),
-                    textAlign: TextAlign.center,
+          SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+
+                // ── Atmospheric header ───────────────────────────
+                Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Color(0xFF1a1a2e),
+                        Colors.black,
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  if (sealedStr.isNotEmpty && openedStr.isNotEmpty) ...[
-                    Text(
-                      'Sealed $sealedStr  →  Opened $openedStr',
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.4),
-                          fontSize: 12),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                  if (openedStr.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppTheme.green.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(20),
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 36),
+                  child: Column(
+                    children: [
+                      Text(emoji,
+                          style: const TextStyle(fontSize: 80)),
+                      const SizedBox(height: 20),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      child: Text(
-                        '🔓 Opened on $openedStr',
-                        style: TextStyle(
-                            color: AppTheme.green.withOpacity(0.9),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                  if (timeWaited.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 14, horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        children: [
-                          const Text('⏳',
-                              style: TextStyle(fontSize: 24)),
-                          const SizedBox(height: 6),
-                          Text(
-                            'You waited $timeWaited',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700),
+                      const SizedBox(height: 8),
+                      if (sealedStr.isNotEmpty)
+                        Text(
+                          'Created on $sealedStr',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 13,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Worth the wait.',
+                          textAlign: TextAlign.center,
+                        ),
+                      const SizedBox(height: 20),
+                      if (openedStr.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: AppTheme.green.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: AppTheme.green.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            '🔓  Opened on $openedStr',
                             style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 12),
+                              color: AppTheme.green.withOpacity(0.9),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      if (timeWaited.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF111111),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.06),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.06),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Center(
+                                  child: Text('⏳',
+                                      style: TextStyle(fontSize: 22)),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'You waited $timeWaited',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Worth every second.',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.4),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      if (desc.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF111111),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.06)),
+                          ),
+                          child: Text(
+                            desc,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.85),
+                              fontSize: 15,
+                              height: 1.7,
+                            ),
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 32),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Divider(
+                              color: Colors.white.withOpacity(0.08),
+                              height: 1,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14),
+                            child: Text(
+                              'your memories',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.3),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Divider(
+                              color: Colors.white.withOpacity(0.08),
+                              height: 1,
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                  if (desc.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppTheme.cardDark2,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        desc,
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
-                            height: 1.5,
-                            fontSize: 14),
-                        textAlign: TextAlign.left,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton.icon(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => MemoryFeedScreen(
-                              capsuleId: widget.capsuleId),
+                      const SizedBox(height: 6),
+
+                      if (memorySummary.isNotEmpty)
+                        Center(
+                          child: Text(
+                            memorySummary,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.3),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 20),
+
+                      if (_memoriesLoading && _memories.isEmpty)
+                        Column(
+                          children: List.generate(
+                            2,
+                            (i) => _SkeletonCard(index: i),
+                          ),
+                        )
+                      else if (_memories.isEmpty && !_memoriesLoading)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 32),
+                            child: Column(
+                              children: [
+                                const Text('📭',
+                                    style: TextStyle(fontSize: 36)),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No memories were added\nto this capsule.',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.35),
+                                    fontSize: 14,
+                                    height: 1.5,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        Column(
+                          children:
+                              _memories.asMap().entries.map((entry) {
+                            final i = entry.key;
+                            final memory = entry.value;
+                            return _FadeInMemory(
+                              index: i,
+                              child: memory.type == _MemoryType.text
+                                  ? _TextMemoryCard(text: memory.text!)
+                                  : _PhotoMemoryCard(
+                                      bytes: memory.bytes!,
+                                      onTap: () =>
+                                          _openPhoto(memory.bytes!),
+                                    ),
+                            );
+                          }).toList(),
+                        ),
+
+                      const SizedBox(height: 24),
+                      Center(
+                        child: Text(
+                          '🔒  End-to-end encrypted',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.15),
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        elevation: 0,
-                      ),
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('View Memories',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700)),
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
+
+          // Confetti
           Align(
             alignment: Alignment.topCenter,
             child: ConfettiWidget(
@@ -665,4 +889,211 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       ),
     );
   }
+}
+
+// ── Staggered fade-in wrapper ─────────────────────────────────────────────────
+
+class _FadeInMemory extends StatefulWidget {
+  final int index;
+  final Widget child;
+
+  const _FadeInMemory({required this.index, required this.child});
+
+  @override
+  State<_FadeInMemory> createState() => _FadeInMemoryState();
+}
+
+class _FadeInMemoryState extends State<_FadeInMemory>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _fade;
+  late Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
+    Future.delayed(
+      Duration(milliseconds: 80 * widget.index),
+      () {
+        if (mounted) _controller.forward();
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(position: _slide, child: widget.child),
+    );
+  }
+}
+
+// ── Text memory card ──────────────────────────────────────────────────────────
+
+class _TextMemoryCard extends StatelessWidget {
+  final String text;
+  const _TextMemoryCard({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isShort = text.length < 120;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: EdgeInsets.all(isShort ? 24 : 20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (isShort)
+            Text(
+              '"',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.15),
+                fontSize: 48,
+                height: 0.8,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          Text(
+            text,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: isShort ? 18 : 15,
+              height: isShort ? 1.6 : 1.7,
+              fontWeight: isShort ? FontWeight.w500 : FontWeight.w400,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Photo memory card ─────────────────────────────────────────────────────────
+
+class _PhotoMemoryCard extends StatelessWidget {
+  final Uint8List bytes;
+  final VoidCallback onTap;
+
+  const _PhotoMemoryCard({required this.bytes, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: AppTheme.cardDark,
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          errorBuilder: (_, __, ___) => const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('[Could not display image]',
+                style: TextStyle(color: AppTheme.mutedText)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Skeleton loading card ─────────────────────────────────────────────────────
+
+class _SkeletonCard extends StatefulWidget {
+  final int index;
+  const _SkeletonCard({required this.index});
+
+  @override
+  State<_SkeletonCard> createState() => _SkeletonCardState();
+}
+
+class _SkeletonCardState extends State<_SkeletonCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width: double.infinity,
+        height: widget.index == 0 ? 100 : 200,
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Color.lerp(
+            const Color(0xFF111111),
+            const Color(0xFF1A1A1A),
+            _anim.value,
+          ),
+          borderRadius: BorderRadius.circular(18),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Memory model ──────────────────────────────────────────────────────────────
+
+enum _MemoryType { text, photo }
+
+class _Memory {
+  final _MemoryType type;
+  final String? text;
+  final Uint8List? bytes;
+
+  _Memory.text(this.text)
+      : type = _MemoryType.text,
+        bytes = null;
+
+  _Memory.photo(this.bytes)
+      : type = _MemoryType.photo,
+        text = null;
 }

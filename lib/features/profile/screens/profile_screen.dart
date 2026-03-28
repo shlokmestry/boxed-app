@@ -19,14 +19,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _loading = true;
   final _authService = AuthService();
 
-  // Edit profile controllers
   final _displayNameController = TextEditingController();
   final _bioController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _load();
+    // ✅ Defer _load() until after the first frame so CapsuleProvider
+    // doesn't call notifyListeners() while the widget tree is still building.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
@@ -37,15 +38,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final auth = context.read<AuthProvider>();
       if (auth.user == null) return;
 
-      // Reload capsules so stats are fresh
-      await context
-          .read<CapsuleProvider>()
-          .loadCapsules(auth.user!.$id);
+      await context.read<CapsuleProvider>().loadCapsules(auth.user!.$id);
 
       final data = await _authService.getUserProfile(auth.user!.$id);
       if (mounted) {
@@ -98,7 +97,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 20),
 
-            // Display name
             Text('Display Name',
                 style: TextStyle(
                     color: Colors.white.withOpacity(0.5), fontSize: 13)),
@@ -121,7 +119,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Bio
             Text('Bio',
                 style: TextStyle(
                     color: Colors.white.withOpacity(0.5), fontSize: 13)),
@@ -214,7 +211,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ? email[0].toUpperCase()
             : 'U';
 
-    // Most recent capsule
     Map<String, dynamic>? recentCapsule;
     if (capsules.isNotEmpty) {
       final sorted = [...capsules];
@@ -239,7 +235,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onPressed: () => Navigator.pop(context),
             ),
             actions: [
-              // Edit profile pencil
               if (!_loading)
                 IconButton(
                   icon: const Icon(Icons.edit_outlined,
@@ -262,7 +257,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Subtle dark gradient — matches app black theme
                   Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
@@ -275,8 +269,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
-
-                  // Subtle decorative circles
                   Positioned(
                     top: -40, right: -40,
                     child: Container(
@@ -297,15 +289,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
-
-                  // Avatar + name
                   Positioned(
                     bottom: 32, left: 0, right: 0,
                     child: _loading
                         ? _headerSkeleton()
                         : Column(
                             children: [
-                              // White avatar
                               Container(
                                 width: 84, height: 84,
                                 decoration: const BoxDecoration(
@@ -387,8 +376,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-
-                        // Stats row — no border
                         Container(
                           padding: const EdgeInsets.symmetric(
                               vertical: 20, horizontal: 24),
@@ -442,7 +429,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 28),
 
-                        // Most recent capsule
                         if (recentCapsule != null) ...[
                           Text(
                             'Most Recent',
@@ -464,7 +450,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // Skeleton for the header while loading
   Widget _headerSkeleton() {
     return Column(
       children: [
@@ -495,7 +480,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // Skeleton for stats while loading
   Widget _bodySkeleton() {
     return Container(
       height: 100,

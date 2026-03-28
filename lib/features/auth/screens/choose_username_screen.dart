@@ -148,7 +148,6 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
       );
       if (!mounted) return;
 
-      // ✅ Clear flag so HomeScreen shows welcome sheet once for this new user
       await _storage.delete(key: 'welcome_seen');
 
       if (!mounted) return;
@@ -172,8 +171,9 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
         backgroundColor: Colors.black,
         automaticallyImplyLeading: false,
       ),
+      // ✅ SingleChildScrollView prevents overflow when keyboard appears
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -262,7 +262,7 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                     ),
                   ),
 
-                  // ✅ Character counter — fixed positioning
+                  // Character counter
                   Positioned(
                     right: 4,
                     top: -20,
@@ -292,7 +292,6 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
 
               const SizedBox(height: 32),
 
-              // ✅ Filled white button when available — matches app CTA style
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -343,6 +342,9 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                         ),
                 ),
               ),
+
+              // Extra bottom padding so content clears the keyboard
+              const SizedBox(height: 40),
             ],
           ),
         ),
