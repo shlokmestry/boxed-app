@@ -13,29 +13,22 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  // ✅ Class-level field
   final _storage = const FlutterSecureStorage();
 
   late AnimationController _controller;
   late Animation<double> _fadeAnim;
-  late Animation<double> _scaleAnim;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 900),
     );
 
     _fadeAnim = CurvedAnimation(
       parent: _controller,
       curve: Curves.easeIn,
-    );
-
-    // ✅ Scale from 0.85 → 1.0 with a smooth ease-out
-    _scaleAnim = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
     );
 
     _controller.forward();
@@ -49,10 +42,9 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigate() async {
-    // ✅ Run auth check and minimum display time in parallel
     final results = await Future.wait([
       _resolveDestination(),
-      Future.delayed(const Duration(milliseconds: 1200)),
+      Future.delayed(const Duration(milliseconds: 1400)),
     ]);
 
     if (!mounted) return;
@@ -76,7 +68,6 @@ class _SplashScreenState extends State<SplashScreen>
 
       return AppRouter.login;
     } catch (_) {
-      // ✅ If anything throws, fall back to login safely
       return AppRouter.login;
     }
   }
@@ -84,50 +75,42 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: Center(
-        child: FadeTransition(
-          opacity: _fadeAnim,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ✅ Scale + Fade on the icon
-              ScaleTransition(
-                scale: _scaleAnim,
-                child: Container(
-                  width: 90,
-                  height: 90,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: const Center(
-                    child: Text('📦', style: TextStyle(fontSize: 48)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Boxed',
+      backgroundColor: const Color(0xFF0A0A0A),
+      body: FadeTransition(
+        opacity: _fadeAnim,
+        child: Stack(
+          children: [
+            // Centered "boxed." wordmark
+            const Center(
+              child: Text(
+                'boxed.',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1,
+                  fontSize: 42,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'Georgia',
+                  letterSpacing: -1,
                 ),
               ),
-              const SizedBox(height: 8),
-              // ✅ w500 + opacity 0.6 for legibility
-              Text(
-                'Seal memories. Open later.',
+            ),
+
+            // Tagline pinned to bottom
+            Positioned(
+              bottom: 52,
+              left: 0,
+              right: 0,
+              child: Text(
+                'seal memories. open later.',
+                textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+                  color: Colors.white.withOpacity(0.35),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.5,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
