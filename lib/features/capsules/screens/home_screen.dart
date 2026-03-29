@@ -9,9 +9,9 @@ import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
 import 'package:boxed_app/features/auth/services/auth_service.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
+import 'package:boxed_app/features/capsules/screens/collaborate_contribute_screen.dart';
 import 'package:boxed_app/features/capsules/services/capsule_service.dart';
 import 'package:boxed_app/features/capsules/services/invite_service.dart';
-import 'package:boxed_app/core/services/encryption_service.dart';
 import 'package:boxed_app/core/state/user_crypto_state.dart';
 
 enum CapsuleFilter { all, upcoming, unlocked }
@@ -36,6 +36,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _pendingInvites = [];
   bool _loadingInvites = false;
   List<Map<String, dynamic>> _collaboratorCapsules = [];
+  List<Map<String, dynamic>> _pendingCapsules = []; // creator's pending capsules
+  List<Map<String, dynamic>> _declinedInvites = []; // declined notifications for creator
 
   @override
   void initState() {
@@ -62,6 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (auth.user != null) {
       context.read<CapsuleProvider>().loadCapsules(auth.user!.$id);
       _loadCollaboratorCapsules(auth.user!.$id);
+      _loadPendingCapsules(auth.user!.$id);
+      _loadDeclinedInvites(auth.user!.$id);
     }
   }
 
@@ -69,6 +73,30 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final capsules = await _capsuleService.fetchCollaboratorCapsules(userId);
       if (mounted) setState(() => _collaboratorCapsules = capsules);
+    } catch (_) {}
+  }
+
+  Future<void> _loadPendingCapsules(String userId) async {
+    try {
+      final capsules = await _capsuleService.fetchPendingCapsules(userId);
+      if (mounted) setState(() => _pendingCapsules = capsules);
+    } catch (_) {}
+  }
+
+  Future<void> _loadDeclinedInvites(String userId) async {
+    try {
+      final invites =
+          await _inviteService.fetchDeclinedInvitesForCreator(userId);
+      // Enrich with decliner's username
+      final authService = AuthService();
+      final enriched = <Map<String, dynamic>>[];
+      for (final invite in invites) {
+        final toUserId = invite['toUserId'] as String? ?? '';
+        final profile = await authService.getUserProfile(toUserId);
+        final username = profile?['username'] as String? ?? '';
+        enriched.add({...invite, 'declinedUsername': username});
+      }
+      if (mounted) setState(() => _declinedInvites = enriched);
     } catch (_) {}
   }
 
@@ -132,66 +160,84 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  // ✅ Accept now navigates to contribution screen
   Future<void> _acceptInvite(Map<String, dynamic> invite) async {
     final auth = context.read<AuthProvider>();
     final userId = auth.user!.$id;
     final inviteId = invite['inviteId'] as String;
     final capsuleId = invite['capsuleId'] as String;
-    final tempEncryptedKey = invite['tempEncryptedKey'] as String?;
 
+    // Fetch capsule data to pass to contribution screen
+    final capsuleData = await _capsuleService.fetchCapsuleById(capsuleId);
+    if (capsuleData == null || !mounted) return;
+
+    // Remove from banners immediately
     setState(() => _pendingInvites =
         _pendingInvites.where((i) => i['inviteId'] != inviteId).toList());
 
-    try {
-      if (tempEncryptedKey == null || tempEncryptedKey.isEmpty) {
-        throw Exception('Invite is missing encrypted key data.');
-      }
+    // Navigate to contribution screen
+    final accepted = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CollaborateContributeScreen(
+          invite: invite,
+          capsuleData: capsuleData,
+        ),
+      ),
+    );
 
-      final capsuleKey = await InviteService.decryptCapsuleKeyFromInvite(
-        tempEncryptedKey: tempEncryptedKey,
-        inviteId: inviteId,
-      );
-
-      final userMasterKey = UserCryptoState.userMasterKey;
-      final reEncryptedKey = await EncryptionService.encryptCapsuleKey(
-        capsuleKey: capsuleKey,
-        userMasterKey: userMasterKey,
-      );
-
-      await _capsuleService.addCollaboratorKey(
-        capsuleId: capsuleId,
-        collaboratorUserId: userId,
-        encryptedKeyForCollaborator: reEncryptedKey,
-      );
-
-      await _inviteService.acceptInvite(inviteId);
+    if (accepted == true) {
       await _loadCollaboratorCapsules(userId);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('Capsule accepted! It unlocks on the set date.'),
-          backgroundColor: AppTheme.cardDark2,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ));
-      }
-    } catch (e) {
-      if (mounted) {
-        await _loadInvites();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed to accept: $e'),
-          backgroundColor: AppTheme.cardDark2,
-        ));
-      }
+      await _loadPendingCapsules(userId);
+    } else {
+      // User backed out — re-show the invite
+      await _loadInvites();
     }
   }
 
+  // ✅ Decline — handle 2-person capsule deletion
   Future<void> _declineInvite(Map<String, dynamic> invite) async {
     final inviteId = invite['inviteId'] as String;
+    final capsuleId = invite['capsuleId'] as String;
+
     setState(() => _pendingInvites =
         _pendingInvites.where((i) => i['inviteId'] != inviteId).toList());
+
     await _inviteService.declineInvite(inviteId);
+
+    // Check if capsule only had this one invitee — if so, delete it
+    try {
+      final capsuleData = await _capsuleService.fetchCapsuleById(capsuleId);
+      if (capsuleData != null) {
+        final pendingCount =
+            (capsuleData['pendingInviteCount'] as num?)?.toInt() ?? 0;
+        final collaboratorIds = List<String>.from(
+            capsuleData['collaboratorIds'] as List? ?? []);
+
+        // If only 1 pending invite was left and no one has accepted yet
+        // → delete the capsule
+        if (pendingCount <= 1 && collaboratorIds.isEmpty) {
+          await _capsuleService.deleteCapsule(capsuleId);
+        } else {
+          // Otherwise just decrement
+          await _capsuleService.decrementPendingInviteCount(capsuleId);
+          // Check if all responded
+          final allDone =
+              await _inviteService.allInvitesResponded(capsuleId);
+          if (allDone) {
+            await _capsuleService.lockCapsule(capsuleId);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // ✅ Dismiss declined notification
+  Future<void> _dismissDeclined(Map<String, dynamic> invite) async {
+    final inviteId = invite['inviteId'] as String;
+    setState(() => _declinedInvites =
+        _declinedInvites.where((i) => i['inviteId'] != inviteId).toList());
+    await _inviteService.markDeclinedSeen(inviteId);
   }
 
   Future<void> _refresh() async {
@@ -217,7 +263,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Map<String, dynamic>> _filtered(List<Map<String, dynamic>> all) {
-    var list = all;
+    // Exclude pending capsules from main list
+    var list = all.where((c) => c['status'] != 'pending').toList();
     if (_query.isNotEmpty) {
       list = list.where((c) {
         final name = (c['name'] ?? '').toString().toLowerCase();
@@ -373,13 +420,18 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: Column(
           children: [
-            // ── Pending invite banners ─────────────────────────
-            if (_pendingInvites.isNotEmpty)
-              ..._pendingInvites.map((invite) => _InviteBanner(
-                    invite: invite,
-                    onAccept: () => _acceptInvite(invite),
-                    onDecline: () => _declineInvite(invite),
-                  )),
+            // ── Declined invite notifications (for creator) ────
+            ..._declinedInvites.map((invite) => _DeclinedBanner(
+                  invite: invite,
+                  onDismiss: () => _dismissDeclined(invite),
+                )),
+
+            // ── Pending invite banners (for invitee) ──────────
+            ..._pendingInvites.map((invite) => _InviteBanner(
+                  invite: invite,
+                  onAccept: () => _acceptInvite(invite),
+                  onDecline: () => _declineInvite(invite),
+                )),
 
             // Search bar
             Container(
@@ -521,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       case CapsuleLoadState.empty:
       case CapsuleLoadState.idle:
-        if (_collaboratorCapsules.isNotEmpty) {
+        if (_collaboratorCapsules.isNotEmpty || _pendingCapsules.isNotEmpty) {
           return _buildList([], bottomPad);
         }
         return _EmptyState(
@@ -535,7 +587,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       case CapsuleLoadState.loaded:
         final filtered = _filtered(provider.capsules);
-        if (filtered.isEmpty && _collaboratorCapsules.isEmpty) {
+        if (filtered.isEmpty &&
+            _collaboratorCapsules.isEmpty &&
+            _pendingCapsules.isEmpty) {
           return _EmptyState(
             filter: _filter,
             onCreateTap: () async {
@@ -560,6 +614,43 @@ class _HomeScreenState extends State<HomeScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.only(bottom: bottomPad + 80),
         children: [
+          // ── Pending capsules (waiting for others) ────────────
+          if (_pendingCapsules.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                      child: Divider(
+                          color: Colors.white.withOpacity(0.08))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('waiting on others',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.3),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 1.0,
+                        )),
+                  ),
+                  Expanded(
+                      child: Divider(
+                          color: Colors.white.withOpacity(0.08))),
+                ],
+              ),
+            ),
+            ..._pendingCapsules.map((c) => _PendingCapsuleCard(
+                  data: c,
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    AppRouter.capsuleDetail,
+                    arguments: c['capsuleId'] as String,
+                  ),
+                )),
+            const SizedBox(height: 8),
+          ],
+
+          // ── Own capsules ──────────────────────────────────────
           ...ownCapsules.map((c) => _CapsuleCard(
                 data: c,
                 isCollaborator: false,
@@ -575,8 +666,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               )),
 
+          // ── Shared with you ───────────────────────────────────
           if (_collaboratorCapsules.isNotEmpty) ...[
-            if (ownCapsules.isNotEmpty)
+            if (ownCapsules.isNotEmpty || _pendingCapsules.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Row(
@@ -618,6 +710,51 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ─── Declined Banner (for creator) ───────────────────────────────────────────
+
+class _DeclinedBanner extends StatelessWidget {
+  final Map<String, dynamic> invite;
+  final VoidCallback onDismiss;
+
+  const _DeclinedBanner({required this.invite, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final username = invite['declinedUsername'] as String? ?? '';
+    final name = username.isNotEmpty ? '@$username' : 'Someone';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppTheme.red.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.red.withOpacity(0.25)),
+      ),
+      child: Row(
+        children: [
+          const Text('❌', style: TextStyle(fontSize: 16)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '$name declined your capsule invite.',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 13,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: onDismiss,
+            child: Icon(Icons.close,
+                color: Colors.white.withOpacity(0.3), size: 18),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─── Invite Banner ────────────────────────────────────────────────────────────
 
 class _InviteBanner extends StatelessWidget {
@@ -633,7 +770,6 @@ class _InviteBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Show sender's username if available
     final fromUsername = invite['fromUsername'] as String? ?? '';
     final subtitle = fromUsername.isNotEmpty
         ? '@$fromUsername added you to a sealed capsule.'
@@ -720,6 +856,91 @@ class _InviteBanner extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Pending Capsule Card (waiting for others to respond) ─────────────────────
+
+class _PendingCapsuleCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final VoidCallback onTap;
+
+  const _PendingCapsuleCard({required this.data, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (data['name'] ?? 'Untitled').toString();
+    final emoji = (data['emoji'] ?? '📦').toString();
+    final count =
+        (data['pendingInviteCount'] as num?)?.toInt() ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.cardDark,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: Colors.orange.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48, height: 48,
+                decoration: BoxDecoration(
+                  color: AppTheme.cardDark2,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                    child: Text(emoji,
+                        style: const TextStyle(fontSize: 24))),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Waiting for $count person${count == 1 ? '' : 's'} to respond',
+                      style: TextStyle(
+                        color: Colors.orange.withOpacity(0.8),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('Pending',
+                    style: TextStyle(
+                      color: Colors.orange.withOpacity(0.9),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    )),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

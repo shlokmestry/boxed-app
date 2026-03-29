@@ -13,6 +13,7 @@ import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/auth/services/auth_service.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 import 'package:boxed_app/features/capsules/services/capsule_service.dart';
+import 'package:boxed_app/features/capsules/services/invite_service.dart';
 import 'package:boxed_app/features/memories/services/memory_service.dart';
 
 class CapsuleDetailScreen extends StatefulWidget {
@@ -23,7 +24,7 @@ class CapsuleDetailScreen extends StatefulWidget {
   State<CapsuleDetailScreen> createState() => _CapsuleDetailScreenState();
 }
 
-enum _Stage { loading, error, locked, unlockReady, revealed }
+enum _Stage { loading, error, pending, locked, unlockReady, revealed }
 
 class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   _Stage _stage = _Stage.loading;
@@ -38,12 +39,15 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   List<_Memory> _memories = [];
   bool _memoriesLoading = false;
 
-  // Collaborator usernames for display on locked screen
   List<String> _collaboratorUsernames = [];
+
+  // For pending stage — invite statuses
+  List<Map<String, dynamic>> _inviteStatuses = [];
 
   late ConfettiController _confettiController;
   final _capsuleService = CapsuleService();
   final _memoryService = MemoryService();
+  final _inviteService = InviteService();
 
   @override
   void initState() {
@@ -93,12 +97,23 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           List<String>.from(data['collaboratorIds'] as List? ?? []);
       final collaboratorKeys =
           List<String>.from(data['collaboratorKeys'] as List? ?? []);
+      final status = data['status'] as String? ?? 'locked';
+      final isCreator = currentUserId == creatorId;
 
-      String encryptedKeyToUse;
+      // ── Pending stage — only creator sees this ────────────────
+      if (status == 'pending' && isCreator) {
+        // Fetch invite statuses to show who has/hasn't responded
+        await _loadInviteStatuses();
+        setState(() => _stage = _Stage.pending);
+        return;
+      }
+
+      // ── Key decryption ────────────────────────────────────────
       final isCollaborator = currentUserId != null &&
           currentUserId != creatorId &&
           collaboratorIds.contains(currentUserId);
 
+      String encryptedKeyToUse;
       if (isCollaborator) {
         final colIndex = collaboratorIds.indexOf(currentUserId!);
         if (colIndex < 0 || colIndex >= collaboratorKeys.length) {
@@ -119,19 +134,14 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       );
       CapsuleCryptoState.setKey(widget.capsuleId, capsuleKey);
 
-      // ✅ Fetch usernames to display on locked screen.
-      // Creator → fetch collaborator usernames.
-      // Collaborator → fetch creator's username.
+      // ── Fetch display usernames ───────────────────────────────
       final authService = AuthService();
       final List<String> usernames = [];
-
       if (isCollaborator) {
-        // Show creator's username
         final profile = await authService.getUserProfile(creatorId);
         final username = profile?['username'] as String? ?? '';
         if (username.isNotEmpty) usernames.add('@$username');
       } else {
-        // Show each collaborator's username
         for (final id in collaboratorIds) {
           if (id == currentUserId) continue;
           final profile = await authService.getUserProfile(id);
@@ -172,7 +182,27 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     }
   }
 
-  // ✅ Fixed: creator sees "You + @friend", collaborator sees "With @creator"
+  Future<void> _loadInviteStatuses() async {
+    try {
+      final invites =
+          await _inviteService.fetchCapsuleInvites(widget.capsuleId);
+      final authService = AuthService();
+      final List<Map<String, dynamic>> statuses = [];
+
+      for (final invite in invites) {
+        final toUserId = invite['toUserId'] as String? ?? '';
+        final profile = await authService.getUserProfile(toUserId);
+        final username = profile?['username'] as String? ?? toUserId;
+        statuses.add({
+          'username': username,
+          'status': invite['status'] as String? ?? 'pending',
+        });
+      }
+
+      if (mounted) setState(() => _inviteStatuses = statuses);
+    } catch (_) {}
+  }
+
   String _buildMembersLabel() {
     final currentUserId = UserCryptoState.currentUserId;
     final creatorId = _capsuleData?['creatorId'] as String? ?? '';
@@ -220,7 +250,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
 
       if (mounted) setState(() => _memories = result);
     } catch (_) {
-      // Silently fail
     } finally {
       if (mounted) setState(() => _memoriesLoading = false);
     }
@@ -398,6 +427,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
             ),
           ),
         );
+      case _Stage.pending:
+        return _buildPending();
       case _Stage.locked:
         return _buildLocked();
       case _Stage.unlockReady:
@@ -406,6 +437,152 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         return _buildRevealed();
     }
   }
+
+  // ── Pending ──────────────────────────────────────────────────────────────
+
+  Widget _buildPending() {
+    final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
+    final emoji = (_capsuleData?['emoji'] ?? '📦').toString();
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(title,
+            style: const TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w600)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.white),
+            onPressed: _delete,
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _load,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            children: [
+              const Spacer(),
+              Text(emoji, style: const TextStyle(fontSize: 64)),
+              const SizedBox(height: 16),
+              Text(title,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 10),
+              Text(
+                'Waiting for everyone to respond before sealing.',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.5), height: 1.4),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+
+              // ── Invite status list ──────────────────────────
+              if (_inviteStatuses.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111111),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.06)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Collaborators',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.8,
+                          )),
+                      const SizedBox(height: 12),
+                      ..._inviteStatuses.map((s) {
+                        final status = s['status'] as String;
+                        final username = s['username'] as String;
+                        final icon = status == 'accepted'
+                            ? '✅'
+                            : status == 'declined'
+                                ? '❌'
+                                : '⏳';
+                        final color = status == 'accepted'
+                            ? AppTheme.green
+                            : status == 'declined'
+                                ? AppTheme.red
+                                : Colors.orange;
+                        final label = status == 'accepted'
+                            ? 'Joined'
+                            : status == 'declined'
+                                ? 'Declined'
+                                : 'Pending';
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            children: [
+                              Text(icon,
+                                  style:
+                                      const TextStyle(fontSize: 16)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text('@$username',
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500)),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.12),
+                                  borderRadius:
+                                      BorderRadius.circular(6),
+                                ),
+                                child: Text(label,
+                                    style: TextStyle(
+                                      color: color,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    )),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 20),
+              Text(
+                '⏰ Capsule auto-deletes if no response in 24 hours.',
+                style: TextStyle(
+                    color: Colors.white.withOpacity(0.2), fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Locked ──────────────────────────────────────────────────────────────────
 
   Widget _buildLocked() {
     final days = _remaining.inDays;
@@ -510,7 +687,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                     textAlign: TextAlign.center),
               const SizedBox(height: 12),
 
-              // ✅ Members pill
+              // Members pill
               Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 14, vertical: 8),
@@ -977,8 +1154,6 @@ class _FadeInMemoryState extends State<_FadeInMemory>
   }
 }
 
-// ── Text memory card ──────────────────────────────────────────────────────────
-
 class _TextMemoryCard extends StatelessWidget {
   final String text;
   const _TextMemoryCard({required this.text});
@@ -1020,8 +1195,6 @@ class _TextMemoryCard extends StatelessWidget {
   }
 }
 
-// ── Photo memory card ─────────────────────────────────────────────────────────
-
 class _PhotoMemoryCard extends StatelessWidget {
   final Uint8List bytes;
   final VoidCallback onTap;
@@ -1051,8 +1224,6 @@ class _PhotoMemoryCard extends StatelessWidget {
     );
   }
 }
-
-// ── Skeleton loading card ─────────────────────────────────────────────────────
 
 class _SkeletonCard extends StatefulWidget {
   final int index;
@@ -1099,8 +1270,6 @@ class _SkeletonCardState extends State<_SkeletonCard>
     );
   }
 }
-
-// ── Memory model ──────────────────────────────────────────────────────────────
 
 enum _MemoryType { text, photo }
 
