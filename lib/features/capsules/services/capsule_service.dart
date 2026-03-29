@@ -40,7 +40,28 @@ class CapsuleService {
     }
   }
 
+  // ── Fetch pending capsules created by user (waiting for invitees) ─────────
+
+  Future<List<Map<String, dynamic>>> fetchPendingCapsules(
+      String userId) async {
+    try {
+      final result = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.capsulesTable,
+        queries: [
+          Query.equal('creatorId', userId),
+          Query.equal('status', 'pending'),
+          Query.orderDesc('\$createdAt'),
+        ],
+      );
+      return result.documents.map((d) => d.data).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   // ── Create capsule ────────────────────────────────────────────────────────
+  // status: 'locked' for solo capsules, 'pending' when invites are being sent
 
   Future<Map<String, dynamic>> createCapsuleWithKey({
     required String userId,
@@ -49,8 +70,11 @@ class CapsuleService {
     required DateTime unlockDate,
     required String encryptedCapsuleKey,
     String emoji = '📦',
+    bool hasPendingInvites = false,
+    int pendingInviteCount = 0,
   }) async {
     final capsuleId = _uuid.v4();
+    final status = hasPendingInvites ? 'pending' : 'locked';
 
     final data = {
       'capsuleId': capsuleId,
@@ -63,6 +87,8 @@ class CapsuleService {
       'isRevealed': false,
       'collaboratorIds': <String>[],
       'collaboratorKeys': <String>[],
+      'status': status,
+      'pendingInviteCount': pendingInviteCount,
     };
 
     await _db.createDocument(
@@ -75,16 +101,51 @@ class CapsuleService {
     return data;
   }
 
+  // ── Lock a pending capsule (all invitees responded) ───────────────────────
+
+  Future<void> lockCapsule(String capsuleId) async {
+    await _db.updateDocument(
+      databaseId: AppwriteConstants.databaseId,
+      collectionId: AppwriteConstants.capsulesTable,
+      documentId: capsuleId,
+      data: {
+        'status': 'locked',
+        'pendingInviteCount': 0,
+      },
+    );
+  }
+
+  // ── Decrement pending invite count ────────────────────────────────────────
+  // Returns the new count. If 0, capsule should be locked.
+
+  Future<int> decrementPendingInviteCount(String capsuleId) async {
+    final doc = await _db.getDocument(
+      databaseId: AppwriteConstants.databaseId,
+      collectionId: AppwriteConstants.capsulesTable,
+      documentId: capsuleId,
+    );
+
+    final current =
+        (doc.data['pendingInviteCount'] as num?)?.toInt() ?? 0;
+    final newCount = (current - 1).clamp(0, 999);
+
+    await _db.updateDocument(
+      databaseId: AppwriteConstants.databaseId,
+      collectionId: AppwriteConstants.capsulesTable,
+      documentId: capsuleId,
+      data: {'pendingInviteCount': newCount},
+    );
+
+    return newCount;
+  }
+
   // ── Add a collaborator's encrypted key to a capsule ───────────────────────
-  // Called when a collaborator accepts their invite. Their master key is in
-  // memory at that point so we can encrypt the capsule key for them.
 
   Future<void> addCollaboratorKey({
     required String capsuleId,
     required String collaboratorUserId,
     required String encryptedKeyForCollaborator,
   }) async {
-    // Fetch current arrays first
     final doc = await _db.getDocument(
       databaseId: AppwriteConstants.databaseId,
       collectionId: AppwriteConstants.capsulesTable,
@@ -96,7 +157,6 @@ class CapsuleService {
     final currentKeys =
         List<String>.from(doc.data['collaboratorKeys'] as List? ?? []);
 
-    // Only add if not already a collaborator
     if (!currentIds.contains(collaboratorUserId)) {
       currentIds.add(collaboratorUserId);
       currentKeys.add(encryptedKeyForCollaborator);
