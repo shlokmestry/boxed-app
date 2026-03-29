@@ -10,7 +10,7 @@ class InviteService {
   final _uuid = const Uuid();
   static final _aesGcm = AesGcm.with256bits();
 
-  // ── Derive a SecretKey from a plain string (inviteId) ─────────────────────
+  // ── Derive a SecretKey from a plain string ────────────────────────────────
 
   static Future<SecretKey> _keyFromString(String source) async {
     final pbkdf2 = Pbkdf2(
@@ -79,9 +79,7 @@ class InviteService {
     }
   }
 
-  // ── Create invite with tempEncryptedKey already set ──────────────────────
-  // Flow: generate inviteId locally → encrypt capsule key with it →
-  // create doc with that inviteId and the encrypted key in one shot.
+  // ── Create invite ─────────────────────────────────────────────────────────
 
   Future<String> createInvite({
     required String capsuleId,
@@ -91,7 +89,6 @@ class InviteService {
   }) async {
     final inviteId = _uuid.v4();
 
-    // Encrypt capsule key using inviteId as shared secret
     final tempEncryptedKey = await encryptCapsuleKeyForInvite(
       capsuleKey: capsuleKey,
       inviteId: inviteId,
@@ -133,6 +130,46 @@ class InviteService {
     }
   }
 
+  // ── Fetch invites sent by a user for a specific capsule ───────────────────
+
+  Future<List<Map<String, dynamic>>> fetchCapsuleInvites(
+      String capsuleId) async {
+    try {
+      final docs = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.invitesTable,
+        queries: [
+          Query.equal('capsuleId', capsuleId),
+          Query.orderDesc('\$createdAt'),
+        ],
+      );
+      return docs.documents.map((d) => d.data).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ── Fetch declined invites sent TO others for capsules I created ──────────
+  // Used to show creator "X declined your invite"
+
+  Future<List<Map<String, dynamic>>> fetchDeclinedInvitesForCreator(
+      String creatorId) async {
+    try {
+      final docs = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.invitesTable,
+        queries: [
+          Query.equal('fromUserId', creatorId),
+          Query.equal('status', 'declined'),
+          Query.orderDesc('\$createdAt'),
+        ],
+      );
+      return docs.documents.map((d) => d.data).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   // ── Accept invite ─────────────────────────────────────────────────────────
 
   Future<void> acceptInvite(String inviteId) async {
@@ -147,7 +184,10 @@ class InviteService {
         databaseId: AppwriteConstants.databaseId,
         collectionId: AppwriteConstants.invitesTable,
         documentId: docs.documents.first.$id,
-        data: {'status': 'accepted'},
+        data: {
+          'status': 'accepted',
+          'respondedAt': DateTime.now().toUtc().toIso8601String(),
+        },
       );
     } catch (_) {}
   }
@@ -166,9 +206,50 @@ class InviteService {
         databaseId: AppwriteConstants.databaseId,
         collectionId: AppwriteConstants.invitesTable,
         documentId: docs.documents.first.$id,
-        data: {'status': 'declined'},
+        data: {
+          'status': 'declined',
+          'respondedAt': DateTime.now().toUtc().toIso8601String(),
+        },
       );
     } catch (_) {}
+  }
+
+  // ── Mark invite as seen by creator (dismiss declined notification) ────────
+
+  Future<void> markDeclinedSeen(String inviteId) async {
+    try {
+      final docs = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.invitesTable,
+        queries: [Query.equal('inviteId', inviteId)],
+      );
+      if (docs.documents.isEmpty) return;
+      await _db.updateDocument(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.invitesTable,
+        documentId: docs.documents.first.$id,
+        data: {'status': 'declined_seen'},
+      );
+    } catch (_) {}
+  }
+
+  // ── Check if all invites for a capsule have been responded to ─────────────
+  // Returns true if capsule should now be locked
+
+  Future<bool> allInvitesResponded(String capsuleId) async {
+    try {
+      final docs = await _db.listDocuments(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.invitesTable,
+        queries: [
+          Query.equal('capsuleId', capsuleId),
+          Query.equal('status', 'pending'),
+        ],
+      );
+      return docs.documents.isEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ── Check duplicate ───────────────────────────────────────────────────────

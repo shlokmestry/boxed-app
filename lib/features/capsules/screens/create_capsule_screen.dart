@@ -472,15 +472,19 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
       );
 
       // 2. Create capsule
-      final capsuleService = CapsuleService();
-      final capsuleData = await capsuleService.createCapsuleWithKey(
-        userId: userId,
-        name: _nameController.text.trim(),
-        description: _messageController.text.trim(),
-        unlockDate: _unlockDate!,
-        emoji: _emoji,
-        encryptedCapsuleKey: encryptedKey,
-      );
+    // 2. Create capsule — pending if invites, locked if solo
+final capsuleService = CapsuleService();
+final capsuleData = await capsuleService.createCapsuleWithKey(
+  userId: userId,
+  name: _nameController.text.trim(),
+  description: _messageController.text.trim(),
+  unlockDate: _unlockDate!,
+  emoji: _emoji,
+  encryptedCapsuleKey: encryptedKey,
+  hasPendingInvites: _collaborators.isNotEmpty,
+  pendingInviteCount: _collaborators.length,
+);
+
 
       final capsuleId = capsuleData['capsuleId'] as String;
 
@@ -527,11 +531,13 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
         content: Row(children: [
           const Text('🔒', style: TextStyle(fontSize: 18)),
           const SizedBox(width: 10),
-          Text(
-            _collaborators.isEmpty ? 'Capsule sealed!' : 'Capsule sealed! Invites sent.',
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
-          ),
+         Text(
+  _collaborators.isEmpty
+      ? 'Capsule sealed!'
+      : 'Invites sent! Capsule seals once everyone responds.',
+  style: const TextStyle(
+      color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
+),
         ]),
         backgroundColor: const Color(0xFF1A1A1A),
         behavior: SnackBarBehavior.floating,
