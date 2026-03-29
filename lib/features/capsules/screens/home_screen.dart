@@ -36,8 +36,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _pendingInvites = [];
   bool _loadingInvites = false;
   List<Map<String, dynamic>> _collaboratorCapsules = [];
-  List<Map<String, dynamic>> _pendingCapsules = []; // creator's pending capsules
-  List<Map<String, dynamic>> _declinedInvites = []; // declined notifications for creator
+  List<Map<String, dynamic>> _pendingCapsules = [];
+  List<Map<String, dynamic>> _declinedInvites = [];
 
   @override
   void initState() {
@@ -87,7 +87,6 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final invites =
           await _inviteService.fetchDeclinedInvitesForCreator(userId);
-      // Enrich with decliner's username
       final authService = AuthService();
       final enriched = <Map<String, dynamic>>[];
       for (final invite in invites) {
@@ -100,7 +99,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
-  // ✅ Enrich each invite with sender's username
   Future<void> _loadInvites() async {
     final auth = context.read<AuthProvider>();
     if (auth.user == null) return;
@@ -108,7 +106,6 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final invites =
           await _inviteService.fetchPendingInvites(auth.user!.$id);
-
       final authService = AuthService();
       final enriched = <Map<String, dynamic>>[];
       for (final invite in invites) {
@@ -117,7 +114,6 @@ class _HomeScreenState extends State<HomeScreen> {
         final username = profile?['username'] as String? ?? '';
         enriched.add({...invite, 'fromUsername': username});
       }
-
       if (mounted) setState(() => _pendingInvites = enriched);
     } catch (_) {
     } finally {
@@ -160,22 +156,18 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // ✅ Accept now navigates to contribution screen
   Future<void> _acceptInvite(Map<String, dynamic> invite) async {
     final auth = context.read<AuthProvider>();
     final userId = auth.user!.$id;
     final inviteId = invite['inviteId'] as String;
     final capsuleId = invite['capsuleId'] as String;
 
-    // Fetch capsule data to pass to contribution screen
     final capsuleData = await _capsuleService.fetchCapsuleById(capsuleId);
     if (capsuleData == null || !mounted) return;
 
-    // Remove from banners immediately
     setState(() => _pendingInvites =
         _pendingInvites.where((i) => i['inviteId'] != inviteId).toList());
 
-    // Navigate to contribution screen
     final accepted = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -190,12 +182,10 @@ class _HomeScreenState extends State<HomeScreen> {
       await _loadCollaboratorCapsules(userId);
       await _loadPendingCapsules(userId);
     } else {
-      // User backed out — re-show the invite
       await _loadInvites();
     }
   }
 
-  // ✅ Decline — handle 2-person capsule deletion
   Future<void> _declineInvite(Map<String, dynamic> invite) async {
     final inviteId = invite['inviteId'] as String;
     final capsuleId = invite['capsuleId'] as String;
@@ -205,7 +195,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await _inviteService.declineInvite(inviteId);
 
-    // Check if capsule only had this one invitee — if so, delete it
     try {
       final capsuleData = await _capsuleService.fetchCapsuleById(capsuleId);
       if (capsuleData != null) {
@@ -214,14 +203,10 @@ class _HomeScreenState extends State<HomeScreen> {
         final collaboratorIds = List<String>.from(
             capsuleData['collaboratorIds'] as List? ?? []);
 
-        // If only 1 pending invite was left and no one has accepted yet
-        // → delete the capsule
         if (pendingCount <= 1 && collaboratorIds.isEmpty) {
           await _capsuleService.deleteCapsule(capsuleId);
         } else {
-          // Otherwise just decrement
           await _capsuleService.decrementPendingInviteCount(capsuleId);
-          // Check if all responded
           final allDone =
               await _inviteService.allInvitesResponded(capsuleId);
           if (allDone) {
@@ -232,7 +217,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
-  // ✅ Dismiss declined notification
   Future<void> _dismissDeclined(Map<String, dynamic> invite) async {
     final inviteId = invite['inviteId'] as String;
     setState(() => _declinedInvites =
@@ -263,7 +247,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Map<String, dynamic>> _filtered(List<Map<String, dynamic>> all) {
-    // Exclude pending capsules from main list
     var list = all.where((c) => c['status'] != 'pending').toList();
     if (_query.isNotEmpty) {
       list = list.where((c) {
@@ -376,7 +359,8 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () => Navigator.pushNamed(context, AppRouter.profile),
             child: Container(
               margin: const EdgeInsets.only(right: 16),
-              width: 38, height: 38,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: AppTheme.cardDark2,
                 borderRadius: BorderRadius.circular(12),
@@ -401,7 +385,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _load();
         },
         child: Container(
-          width: 56, height: 56,
+          width: 56,
+          height: 56,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
@@ -420,20 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: Column(
           children: [
-            // ── Declined invite notifications (for creator) ────
-            ..._declinedInvites.map((invite) => _DeclinedBanner(
-                  invite: invite,
-                  onDismiss: () => _dismissDeclined(invite),
-                )),
-
-            // ── Pending invite banners (for invitee) ──────────
-            ..._pendingInvites.map((invite) => _InviteBanner(
-                  invite: invite,
-                  onAccept: () => _acceptInvite(invite),
-                  onDecline: () => _declineInvite(invite),
-                )),
-
-            // Search bar
+            // ── Search bar (fixed, never scrolls) ─────────────
             Container(
               height: 46,
               decoration: BoxDecoration(
@@ -470,7 +442,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 14),
 
-            // Filter chips
+            // ── Filter chips (fixed, never scrolls) ───────────
             Row(
               children: CapsuleFilter.values.map((f) {
                 final selected = _filter == f;
@@ -488,8 +460,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
-                        color:
-                            selected ? Colors.white : AppTheme.cardDark2,
+                        color: selected
+                            ? Colors.white
+                            : AppTheme.cardDark2,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(label,
@@ -507,33 +480,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Next unlock banner
-            if (capsuleProvider.state == CapsuleLoadState.loaded) ...[
-              Builder(builder: (_) {
-                final next = _nextUnlock(capsuleProvider.capsules);
-                if (next == null) return const SizedBox.shrink();
-                final unlockDate = DateTime.parse(next['unlockDate']);
-                return Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: AppTheme.blue.withOpacity(0.25)),
-                  ),
-                  child: Text(_nextUnlockLabel(unlockDate),
-                      style: TextStyle(
-                        color: AppTheme.blue.withOpacity(0.9),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      )),
-                );
-              }),
-            ],
-
+            // ── Everything else scrolls ────────────────────────
             Expanded(child: _buildBody(capsuleProvider, bottomPad)),
           ],
         ),
@@ -573,7 +520,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
       case CapsuleLoadState.empty:
       case CapsuleLoadState.idle:
-        if (_collaboratorCapsules.isNotEmpty || _pendingCapsules.isNotEmpty) {
+        if (_collaboratorCapsules.isNotEmpty ||
+            _pendingCapsules.isNotEmpty ||
+            _pendingInvites.isNotEmpty ||
+            _declinedInvites.isNotEmpty) {
           return _buildList([], bottomPad);
         }
         return _EmptyState(
@@ -589,7 +539,9 @@ class _HomeScreenState extends State<HomeScreen> {
         final filtered = _filtered(provider.capsules);
         if (filtered.isEmpty &&
             _collaboratorCapsules.isEmpty &&
-            _pendingCapsules.isEmpty) {
+            _pendingCapsules.isEmpty &&
+            _pendingInvites.isEmpty &&
+            _declinedInvites.isEmpty) {
           return _EmptyState(
             filter: _filter,
             onCreateTap: () async {
@@ -614,6 +566,54 @@ class _HomeScreenState extends State<HomeScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.only(bottom: bottomPad + 80),
         children: [
+          // ── Banners scroll with the list — no more overflow ──
+
+          // Next unlock banner
+          Builder(builder: (_) {
+            if (ownCapsules.isEmpty) return const SizedBox.shrink();
+            final now = DateTime.now();
+            final upcoming = ownCapsules.where((c) {
+              final unlock = DateTime.tryParse(c['unlockDate'] ?? '');
+              return unlock != null && unlock.isAfter(now);
+            }).toList();
+            if (upcoming.isEmpty) return const SizedBox.shrink();
+            upcoming.sort((a, b) => DateTime.parse(a['unlockDate'])
+                .compareTo(DateTime.parse(b['unlockDate'])));
+            final unlockDate =
+                DateTime.parse(upcoming.first['unlockDate']);
+            return Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: AppTheme.blue.withOpacity(0.25)),
+              ),
+              child: Text(_nextUnlockLabel(unlockDate),
+                  style: TextStyle(
+                    color: AppTheme.blue.withOpacity(0.9),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  )),
+            );
+          }),
+
+          // Declined notifications
+          ..._declinedInvites.map((invite) => _DeclinedBanner(
+                invite: invite,
+                onDismiss: () => _dismissDeclined(invite),
+              )),
+
+          // Pending invite banners
+          ..._pendingInvites.map((invite) => _InviteBanner(
+                invite: invite,
+                onAccept: () => _acceptInvite(invite),
+                onDecline: () => _declineInvite(invite),
+              )),
+
           // ── Pending capsules (waiting for others) ────────────
           if (_pendingCapsules.isNotEmpty) ...[
             Padding(
@@ -624,7 +624,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Divider(
                           color: Colors.white.withOpacity(0.08))),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12),
                     child: Text('waiting on others',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.3),
@@ -710,7 +711,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ─── Declined Banner (for creator) ───────────────────────────────────────────
+// ─── Declined Banner ─────────────────────────────────────────────────────────
 
 class _DeclinedBanner extends StatelessWidget {
   final Map<String, dynamic> invite;
@@ -861,7 +862,7 @@ class _InviteBanner extends StatelessWidget {
   }
 }
 
-// ─── Pending Capsule Card (waiting for others to respond) ─────────────────────
+// ─── Pending Capsule Card ─────────────────────────────────────────────────────
 
 class _PendingCapsuleCard extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -873,8 +874,7 @@ class _PendingCapsuleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = (data['name'] ?? 'Untitled').toString();
     final emoji = (data['emoji'] ?? '📦').toString();
-    final count =
-        (data['pendingInviteCount'] as num?)?.toInt() ?? 0;
+    final count = (data['pendingInviteCount'] as num?)?.toInt() ?? 0;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -885,20 +885,20 @@ class _PendingCapsuleCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppTheme.cardDark,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-                color: Colors.orange.withOpacity(0.3)),
+            border: Border.all(color: Colors.orange.withOpacity(0.3)),
           ),
           child: Row(
             children: [
               Container(
-                width: 48, height: 48,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   color: AppTheme.cardDark2,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                    child: Text(emoji,
-                        style: const TextStyle(fontSize: 24))),
+                    child:
+                        Text(emoji, style: const TextStyle(fontSize: 24))),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -963,7 +963,8 @@ class _WelcomeSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 36, height: 4,
+            width: 36,
+            height: 4,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.15),
               borderRadius: BorderRadius.circular(2),
@@ -989,11 +990,14 @@ class _WelcomeSheet extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
-          _featureRow('🔒', 'End-to-end encrypted', 'Your memories, only yours'),
+          _featureRow(
+              '🔒', 'End-to-end encrypted', 'Your memories, only yours'),
           const SizedBox(height: 14),
-          _featureRow('⏳', 'Time-locked capsules', 'Sealed until the day you choose'),
+          _featureRow('⏳', 'Time-locked capsules',
+              'Sealed until the day you choose'),
           const SizedBox(height: 14),
-          _featureRow('🎉', 'The reveal moment', 'Confetti when you finally open it'),
+          _featureRow(
+              '🎉', 'The reveal moment', 'Confetti when you finally open it'),
           const SizedBox(height: 36),
           SizedBox(
             width: double.infinity,
@@ -1008,8 +1012,8 @@ class _WelcomeSheet extends StatelessWidget {
                 elevation: 0,
               ),
               child: const Text('Create my first capsule →',
-                  style: TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w700)),
+                  style:
+                      TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             ),
           ),
         ],
@@ -1021,7 +1025,8 @@ class _WelcomeSheet extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 44, height: 44,
+          width: 44,
+          height: 44,
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.06),
             borderRadius: BorderRadius.circular(12),
@@ -1113,7 +1118,8 @@ class _EmptyStateState extends State<_EmptyState>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 80, height: 80,
+                  width: 80,
+                  height: 80,
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.05),
                     borderRadius: BorderRadius.circular(22),
@@ -1155,7 +1161,8 @@ class _EmptyStateState extends State<_EmptyState>
                       icon: const Icon(Icons.add, size: 20),
                       label: const Text('Create your first capsule',
                           style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700)),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700)),
                     ),
                   ),
                 ],
@@ -1260,7 +1267,8 @@ class _CapsuleCard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 48, height: 48,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   color: AppTheme.cardDark2,
                   borderRadius: BorderRadius.circular(12),
@@ -1327,8 +1335,9 @@ class _CapsuleCard extends StatelessWidget {
                     child: Text(
                       isUnlocked ? 'Unlocked' : 'Locked',
                       style: TextStyle(
-                        color:
-                            isUnlocked ? AppTheme.green : AppTheme.blue,
+                        color: isUnlocked
+                            ? AppTheme.green
+                            : AppTheme.blue,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
