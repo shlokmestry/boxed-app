@@ -72,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
+  // ✅ Enrich each invite with sender's username
   Future<void> _loadInvites() async {
     final auth = context.read<AuthProvider>();
     if (auth.user == null) return;
@@ -79,7 +80,17 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final invites =
           await _inviteService.fetchPendingInvites(auth.user!.$id);
-      if (mounted) setState(() => _pendingInvites = invites);
+
+      final authService = AuthService();
+      final enriched = <Map<String, dynamic>>[];
+      for (final invite in invites) {
+        final fromUserId = invite['fromUserId'] as String? ?? '';
+        final profile = await authService.getUserProfile(fromUserId);
+        final username = profile?['username'] as String? ?? '';
+        enriched.add({...invite, 'fromUsername': username});
+      }
+
+      if (mounted) setState(() => _pendingInvites = enriched);
     } catch (_) {
     } finally {
       if (mounted) setState(() => _loadingInvites = false);
@@ -121,13 +132,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // ── Accept invite ─────────────────────────────────────────────────────────
-  // 1. Get tempEncryptedKey from invite
-  // 2. Decrypt capsule key using inviteId as shared secret
-  // 3. Re-encrypt with collaborator's own master key
-  // 4. Store in capsule's collaboratorKeys array
-  // 5. Mark invite accepted
-
   Future<void> _acceptInvite(Map<String, dynamic> invite) async {
     final auth = context.read<AuthProvider>();
     final userId = auth.user!.$id;
@@ -135,7 +139,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final capsuleId = invite['capsuleId'] as String;
     final tempEncryptedKey = invite['tempEncryptedKey'] as String?;
 
-    // Optimistically remove from UI
     setState(() => _pendingInvites =
         _pendingInvites.where((i) => i['inviteId'] != inviteId).toList());
 
@@ -144,30 +147,24 @@ class _HomeScreenState extends State<HomeScreen> {
         throw Exception('Invite is missing encrypted key data.');
       }
 
-      // 1. Decrypt capsule key using inviteId as shared secret
       final capsuleKey = await InviteService.decryptCapsuleKeyFromInvite(
         tempEncryptedKey: tempEncryptedKey,
         inviteId: inviteId,
       );
 
-      // 2. Re-encrypt with collaborator's own master key
       final userMasterKey = UserCryptoState.userMasterKey;
       final reEncryptedKey = await EncryptionService.encryptCapsuleKey(
         capsuleKey: capsuleKey,
         userMasterKey: userMasterKey,
       );
 
-      // 3. Store in capsule's collaboratorKeys
       await _capsuleService.addCollaboratorKey(
         capsuleId: capsuleId,
         collaboratorUserId: userId,
         encryptedKeyForCollaborator: reEncryptedKey,
       );
 
-      // 4. Mark invite accepted
       await _inviteService.acceptInvite(inviteId);
-
-      // 5. Reload collaborator capsules
       await _loadCollaboratorCapsules(userId);
 
       if (mounted) {
@@ -180,7 +177,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ));
       }
     } catch (e) {
-      // Re-add invite if failed
       if (mounted) {
         await _loadInvites();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -291,13 +287,12 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child:
-                const Text('Cancel', style: TextStyle(color: Colors.white)),
+            child: const Text('Cancel',
+                style: TextStyle(color: Colors.white)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child:
-                Text('Delete', style: TextStyle(color: AppTheme.red)),
+            child: Text('Delete', style: TextStyle(color: AppTheme.red)),
           ),
         ],
       ),
@@ -638,6 +633,12 @@ class _InviteBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Show sender's username if available
+    final fromUsername = invite['fromUsername'] as String? ?? '';
+    final subtitle = fromUsername.isNotEmpty
+        ? '@$fromUsername added you to a sealed capsule.'
+        : 'Someone added you to a sealed capsule.';
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -664,7 +665,7 @@ class _InviteBanner extends StatelessWidget {
                           fontSize: 14,
                         )),
                     const SizedBox(height: 2),
-                    Text('Someone added you to a sealed capsule.',
+                    Text(subtitle,
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.5),
                           fontSize: 12,
@@ -786,8 +787,8 @@ class _WelcomeSheet extends StatelessWidget {
                 elevation: 0,
               ),
               child: const Text('Create my first capsule →',
-                  style:
-                      TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700)),
             ),
           ),
         ],
@@ -897,8 +898,8 @@ class _EmptyStateState extends State<_EmptyState>
                     borderRadius: BorderRadius.circular(22),
                   ),
                   child: Center(
-                      child:
-                          Text(emoji, style: const TextStyle(fontSize: 38))),
+                      child: Text(emoji,
+                          style: const TextStyle(fontSize: 38))),
                 ),
                 const SizedBox(height: 20),
                 Text(headline,
@@ -1044,8 +1045,8 @@ class _CapsuleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                    child:
-                        Text(emoji, style: const TextStyle(fontSize: 24))),
+                    child: Text(emoji,
+                        style: const TextStyle(fontSize: 24))),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1105,7 +1106,8 @@ class _CapsuleCard extends StatelessWidget {
                     child: Text(
                       isUnlocked ? 'Unlocked' : 'Locked',
                       style: TextStyle(
-                        color: isUnlocked ? AppTheme.green : AppTheme.blue,
+                        color:
+                            isUnlocked ? AppTheme.green : AppTheme.blue,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
