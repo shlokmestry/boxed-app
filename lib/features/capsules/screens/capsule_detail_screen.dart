@@ -82,12 +82,37 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
 
       _capsuleData = data;
 
-      final encryptedKey = data['encryptedCapsuleKey'] as String;
       final masterKey = UserCryptoState.userMasterKey;
-      final capsuleKey = await EncryptionService.decryptCapsuleKey(
-        encryptedKey: encryptedKey,
-        userMasterKey: masterKey,
-      );
+final currentUserId = UserCryptoState.currentUserId;
+final creatorId = data['creatorId'] as String? ?? '';
+final collaboratorIds =
+    List<String>.from(data['collaboratorIds'] as List? ?? []);
+final collaboratorKeys =
+    List<String>.from(data['collaboratorKeys'] as List? ?? []);
+
+String encryptedKeyToUse;
+final isCollaborator = currentUserId != null &&
+    currentUserId != creatorId &&
+    collaboratorIds.contains(currentUserId);
+
+if (isCollaborator) {
+  final colIndex = collaboratorIds.indexOf(currentUserId!);
+  if (colIndex < 0 || colIndex >= collaboratorKeys.length) {
+    setState(() {
+      _stage = _Stage.error;
+      _error = 'Your access key is not ready yet.';
+    });
+    return;
+  }
+  encryptedKeyToUse = collaboratorKeys[colIndex];
+} else {
+  encryptedKeyToUse = data['encryptedCapsuleKey'] as String;
+}
+
+final capsuleKey = await EncryptionService.decryptCapsuleKey(
+  encryptedKey: encryptedKeyToUse,
+  userMasterKey: masterKey,
+);
       CapsuleCryptoState.setKey(widget.capsuleId, capsuleKey);
 
       final unlockDate =

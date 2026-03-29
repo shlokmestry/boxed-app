@@ -9,6 +9,10 @@ import 'package:boxed_app/core/theme/app_theme.dart';
 import 'package:boxed_app/features/auth/providers/auth_provider.dart';
 import 'package:boxed_app/features/auth/services/auth_service.dart';
 import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
+import 'package:boxed_app/features/capsules/services/capsule_service.dart';
+import 'package:boxed_app/features/capsules/services/invite_service.dart';
+import 'package:boxed_app/core/services/encryption_service.dart';
+import 'package:boxed_app/core/state/user_crypto_state.dart';
 
 enum CapsuleFilter { all, upcoming, unlocked }
 
@@ -22,9 +26,16 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   final _storage = const FlutterSecureStorage();
+  final _inviteService = InviteService();
+  final _capsuleService = CapsuleService();
+
   String _query = '';
   CapsuleFilter _filter = CapsuleFilter.all;
   String _displayName = '';
+
+  List<Map<String, dynamic>> _pendingInvites = [];
+  bool _loadingInvites = false;
+  List<Map<String, dynamic>> _collaboratorCapsules = [];
 
   @override
   void initState() {
@@ -35,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _load();
       _loadDisplayName();
+      _loadInvites();
       await _maybeShowWelcome();
     });
   }
@@ -49,6 +61,28 @@ class _HomeScreenState extends State<HomeScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.user != null) {
       context.read<CapsuleProvider>().loadCapsules(auth.user!.$id);
+      _loadCollaboratorCapsules(auth.user!.$id);
+    }
+  }
+
+  Future<void> _loadCollaboratorCapsules(String userId) async {
+    try {
+      final capsules = await _capsuleService.fetchCollaboratorCapsules(userId);
+      if (mounted) setState(() => _collaboratorCapsules = capsules);
+    } catch (_) {}
+  }
+
+  Future<void> _loadInvites() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.user == null) return;
+    setState(() => _loadingInvites = true);
+    try {
+      final invites =
+          await _inviteService.fetchPendingInvites(auth.user!.$id);
+      if (mounted) setState(() => _pendingInvites = invites);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingInvites = false);
     }
   }
 
@@ -56,12 +90,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.user == null) return;
     try {
-      final data =
-          await AuthService().getUserProfile(auth.user!.$id);
-      final username =
-          (data?['username'] as String? ?? '').trim();
-      final display =
-          (data?['displayName'] as String? ?? '').trim();
+      final data = await AuthService().getUserProfile(auth.user!.$id);
+      final username = (data?['username'] as String? ?? '').trim();
+      final display = (data?['displayName'] as String? ?? '').trim();
       if (mounted) {
         setState(
             () => _displayName = username.isNotEmpty ? username : display);
@@ -90,32 +121,107 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  // ── Accept invite ─────────────────────────────────────────────────────────
+  // 1. Get tempEncryptedKey from invite
+  // 2. Decrypt capsule key using inviteId as shared secret
+  // 3. Re-encrypt with collaborator's own master key
+  // 4. Store in capsule's collaboratorKeys array
+  // 5. Mark invite accepted
+
+  Future<void> _acceptInvite(Map<String, dynamic> invite) async {
+    final auth = context.read<AuthProvider>();
+    final userId = auth.user!.$id;
+    final inviteId = invite['inviteId'] as String;
+    final capsuleId = invite['capsuleId'] as String;
+    final tempEncryptedKey = invite['tempEncryptedKey'] as String?;
+
+    // Optimistically remove from UI
+    setState(() => _pendingInvites =
+        _pendingInvites.where((i) => i['inviteId'] != inviteId).toList());
+
+    try {
+      if (tempEncryptedKey == null || tempEncryptedKey.isEmpty) {
+        throw Exception('Invite is missing encrypted key data.');
+      }
+
+      // 1. Decrypt capsule key using inviteId as shared secret
+      final capsuleKey = await InviteService.decryptCapsuleKeyFromInvite(
+        tempEncryptedKey: tempEncryptedKey,
+        inviteId: inviteId,
+      );
+
+      // 2. Re-encrypt with collaborator's own master key
+      final userMasterKey = UserCryptoState.userMasterKey;
+      final reEncryptedKey = await EncryptionService.encryptCapsuleKey(
+        capsuleKey: capsuleKey,
+        userMasterKey: userMasterKey,
+      );
+
+      // 3. Store in capsule's collaboratorKeys
+      await _capsuleService.addCollaboratorKey(
+        capsuleId: capsuleId,
+        collaboratorUserId: userId,
+        encryptedKeyForCollaborator: reEncryptedKey,
+      );
+
+      // 4. Mark invite accepted
+      await _inviteService.acceptInvite(inviteId);
+
+      // 5. Reload collaborator capsules
+      await _loadCollaboratorCapsules(userId);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('Capsule accepted! It unlocks on the set date.'),
+          backgroundColor: AppTheme.cardDark2,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ));
+      }
+    } catch (e) {
+      // Re-add invite if failed
+      if (mounted) {
+        await _loadInvites();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Failed to accept: $e'),
+          backgroundColor: AppTheme.cardDark2,
+        ));
+      }
+    }
+  }
+
+  Future<void> _declineInvite(Map<String, dynamic> invite) async {
+    final inviteId = invite['inviteId'] as String;
+    setState(() => _pendingInvites =
+        _pendingInvites.where((i) => i['inviteId'] != inviteId).toList());
+    await _inviteService.declineInvite(inviteId);
+  }
+
   Future<void> _refresh() async {
     _load();
+    _loadInvites();
     await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
-            SizedBox(width: 8),
-            Text('Capsules refreshed',
-                style: TextStyle(color: Colors.white, fontSize: 13)),
-          ],
-        ),
-        backgroundColor: const Color(0xFF1A1A1A),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 2),
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: const Row(
+        children: [
+          Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
+          SizedBox(width: 8),
+          Text('Capsules refreshed',
+              style: TextStyle(color: Colors.white, fontSize: 13)),
+        ],
       ),
-    );
+      backgroundColor: const Color(0xFF1A1A1A),
+      behavior: SnackBarBehavior.floating,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      duration: const Duration(seconds: 2),
+    ));
   }
 
   List<Map<String, dynamic>> _filtered(List<Map<String, dynamic>> all) {
     var list = all;
-
     if (_query.isNotEmpty) {
       list = list.where((c) {
         final name = (c['name'] ?? '').toString().toLowerCase();
@@ -123,7 +229,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return name.contains(_query) || desc.contains(_query);
       }).toList();
     }
-
     switch (_filter) {
       case CapsuleFilter.upcoming:
         list = list.where((c) {
@@ -140,7 +245,6 @@ class _HomeScreenState extends State<HomeScreen> {
       case CapsuleFilter.all:
         break;
     }
-
     return list;
   }
 
@@ -150,26 +254,21 @@ class _HomeScreenState extends State<HomeScreen> {
       final unlock = DateTime.tryParse(c['unlockDate'] ?? '');
       return unlock != null && unlock.isAfter(now);
     }).toList();
-
     if (upcoming.isEmpty) return null;
-
     upcoming.sort((a, b) {
       final aDate = DateTime.parse(a['unlockDate']);
       final bDate = DateTime.parse(b['unlockDate']);
       return aDate.compareTo(bDate);
     });
-
     return upcoming.first;
   }
 
   String _nextUnlockLabel(DateTime unlock) {
     final diff = unlock.difference(DateTime.now());
-    if (diff.inDays >= 1) {
+    if (diff.inDays >= 1)
       return '⏳ Next unlock in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
-    }
-    if (diff.inHours >= 1) {
+    if (diff.inHours >= 1)
       return '⏳ Next unlock in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
-    }
     return '⏳ Next unlock in ${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'}';
   }
 
@@ -192,17 +291,17 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: Colors.white)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Delete', style: TextStyle(color: AppTheme.red)),
+            child:
+                Text('Delete', style: TextStyle(color: AppTheme.red)),
           ),
         ],
       ),
     );
-
     if (confirm == true && mounted) {
       context.read<CapsuleProvider>().deleteCapsule(capsuleId);
     }
@@ -214,7 +313,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final capsuleProvider = context.watch<CapsuleProvider>();
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
-    // ✅ Use loaded display name, fall back to email prefix
     final greeting = _displayName.isNotEmpty
         ? _displayName
         : (auth.user?.email?.split('@').first ?? 'there');
@@ -225,21 +323,18 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: false,
-        title: Text(
-          'Hey $greeting 👋',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        title: Text('Hey $greeting 👋',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            )),
         actions: [
           GestureDetector(
             onTap: () => Navigator.pushNamed(context, AppRouter.profile),
             child: Container(
               margin: const EdgeInsets.only(right: 16),
-              width: 38,
-              height: 38,
+              width: 38, height: 38,
               decoration: BoxDecoration(
                 color: AppTheme.cardDark2,
                 borderRadius: BorderRadius.circular(12),
@@ -248,10 +343,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Text(
                   (auth.user?.email ?? 'U')[0].toUpperCase(),
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                  ),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16),
                 ),
               ),
             ),
@@ -265,8 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _load();
         },
         child: Container(
-          width: 56,
-          height: 56,
+          width: 56, height: 56,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
@@ -285,6 +378,14 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: Column(
           children: [
+            // ── Pending invite banners ─────────────────────────
+            if (_pendingInvites.isNotEmpty)
+              ..._pendingInvites.map((invite) => _InviteBanner(
+                    invite: invite,
+                    onAccept: () => _acceptInvite(invite),
+                    onDecline: () => _declineInvite(invite),
+                  )),
+
             // Search bar
             Container(
               height: 46,
@@ -305,8 +406,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.white, fontSize: 15),
                       decoration: const InputDecoration(
                         hintText: 'Search capsules...',
-                        hintStyle:
-                            TextStyle(color: AppTheme.mutedText2),
+                        hintStyle: TextStyle(color: AppTheme.mutedText2),
                         border: InputBorder.none,
                         isDense: true,
                       ),
@@ -341,21 +441,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
-                        color: selected
-                            ? Colors.white
-                            : AppTheme.cardDark2,
+                        color:
+                            selected ? Colors.white : AppTheme.cardDark2,
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          color: selected
-                              ? Colors.black
-                              : AppTheme.mutedText,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                      child: Text(label,
+                          style: TextStyle(
+                            color: selected
+                                ? Colors.black
+                                : AppTheme.mutedText,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          )),
                     ),
                   ),
                 );
@@ -368,8 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Builder(builder: (_) {
                 final next = _nextUnlock(capsuleProvider.capsules);
                 if (next == null) return const SizedBox.shrink();
-                final unlockDate =
-                    DateTime.parse(next['unlockDate']);
+                final unlockDate = DateTime.parse(next['unlockDate']);
                 return Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 16),
@@ -381,21 +477,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     border: Border.all(
                         color: AppTheme.blue.withOpacity(0.25)),
                   ),
-                  child: Text(
-                    _nextUnlockLabel(unlockDate),
-                    style: TextStyle(
-                      color: AppTheme.blue.withOpacity(0.9),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+                  child: Text(_nextUnlockLabel(unlockDate),
+                      style: TextStyle(
+                        color: AppTheme.blue.withOpacity(0.9),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      )),
                 );
               }),
             ],
 
-            Expanded(
-              child: _buildBody(capsuleProvider, bottomPad),
-            ),
+            Expanded(child: _buildBody(capsuleProvider, bottomPad)),
           ],
         ),
       ),
@@ -416,11 +508,9 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                provider.error ?? 'Something went wrong',
-                style: const TextStyle(color: AppTheme.red),
-                textAlign: TextAlign.center,
-              ),
+              Text(provider.error ?? 'Something went wrong',
+                  style: const TextStyle(color: AppTheme.red),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 16),
               OutlinedButton(
                 onPressed: _load,
@@ -436,6 +526,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       case CapsuleLoadState.empty:
       case CapsuleLoadState.idle:
+        if (_collaboratorCapsules.isNotEmpty) {
+          return _buildList([], bottomPad);
+        }
         return _EmptyState(
           filter: _filter,
           onCreateTap: () async {
@@ -447,7 +540,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       case CapsuleLoadState.loaded:
         final filtered = _filtered(provider.capsules);
-        if (filtered.isEmpty) {
+        if (filtered.isEmpty && _collaboratorCapsules.isEmpty) {
           return _EmptyState(
             filter: _filter,
             onCreateTap: () async {
@@ -458,30 +551,176 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           );
         }
-        return RefreshIndicator(
-          onRefresh: _refresh,
-          color: Colors.white,
-          backgroundColor: AppTheme.cardDark2,
-          child: ListView.builder(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.only(bottom: bottomPad + 80),
-            itemCount: filtered.length,
-            itemBuilder: (_, i) => _CapsuleCard(
-              data: filtered[i],
-              onTap: () => Navigator.pushNamed(
-                context,
-                AppRouter.capsuleDetail,
-                arguments: filtered[i]['capsuleId'] as String,
-              ),
-              onLongPress: () => _confirmDelete(
-                context,
-                filtered[i]['capsuleId'] as String,
-                filtered[i]['name'] as String? ?? 'Untitled',
-              ),
-            ),
-          ),
-        );
+        return _buildList(filtered, bottomPad);
     }
+  }
+
+  Widget _buildList(
+      List<Map<String, dynamic>> ownCapsules, double bottomPad) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: Colors.white,
+      backgroundColor: AppTheme.cardDark2,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.only(bottom: bottomPad + 80),
+        children: [
+          ...ownCapsules.map((c) => _CapsuleCard(
+                data: c,
+                isCollaborator: false,
+                onTap: () => Navigator.pushNamed(
+                  context,
+                  AppRouter.capsuleDetail,
+                  arguments: c['capsuleId'] as String,
+                ),
+                onLongPress: () => _confirmDelete(
+                  context,
+                  c['capsuleId'] as String,
+                  c['name'] as String? ?? 'Untitled',
+                ),
+              )),
+
+          if (_collaboratorCapsules.isNotEmpty) ...[
+            if (ownCapsules.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                        child: Divider(
+                            color: Colors.white.withOpacity(0.08))),
+                    Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('shared with you',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.3),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 1.0,
+                          )),
+                    ),
+                    Expanded(
+                        child: Divider(
+                            color: Colors.white.withOpacity(0.08))),
+                  ],
+                ),
+              ),
+            ..._collaboratorCapsules.map((c) => _CapsuleCard(
+                  data: c,
+                  isCollaborator: true,
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    AppRouter.capsuleDetail,
+                    arguments: c['capsuleId'] as String,
+                  ),
+                  onLongPress: () {},
+                )),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Invite Banner ────────────────────────────────────────────────────────────
+
+class _InviteBanner extends StatelessWidget {
+  final Map<String, dynamic> invite;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+
+  const _InviteBanner({
+    required this.invite,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A2E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.blue.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('📦', style: TextStyle(fontSize: 20)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Capsule invite',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        )),
+                    const SizedBox(height: 2),
+                    Text('Someone added you to a sealed capsule.',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 12,
+                        )),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: onDecline,
+                  child: Container(
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('Decline',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        )),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: GestureDetector(
+                  onTap: onAccept,
+                  child: Container(
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text('Accept',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        )),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -502,8 +741,7 @@ class _WelcomeSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 36,
-            height: 4,
+            width: 36, height: 4,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.15),
               borderRadius: BorderRadius.circular(2),
@@ -512,14 +750,12 @@ class _WelcomeSheet extends StatelessWidget {
           const SizedBox(height: 32),
           const Text('📦', style: TextStyle(fontSize: 56)),
           const SizedBox(height: 20),
-          const Text(
-            'Welcome to Boxed',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+          const Text('Welcome to Boxed',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              )),
           const SizedBox(height: 12),
           Text(
             'Seal memories today - photos, notes, anything that matters.\nSet a date. Open it when the time is right.',
@@ -531,14 +767,11 @@ class _WelcomeSheet extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
-          _featureRow('🔒', 'End-to-end encrypted',
-              'Your memories, only yours'),
+          _featureRow('🔒', 'End-to-end encrypted', 'Your memories, only yours'),
           const SizedBox(height: 14),
-          _featureRow('⏳', 'Time-locked capsules',
-              'Sealed until the day you choose'),
+          _featureRow('⏳', 'Time-locked capsules', 'Sealed until the day you choose'),
           const SizedBox(height: 14),
-          _featureRow('🎉', 'The reveal moment',
-              'Confetti when you finally open it'),
+          _featureRow('🎉', 'The reveal moment', 'Confetti when you finally open it'),
           const SizedBox(height: 36),
           SizedBox(
             width: double.infinity,
@@ -552,11 +785,9 @@ class _WelcomeSheet extends StatelessWidget {
                     borderRadius: BorderRadius.circular(14)),
                 elevation: 0,
               ),
-              child: const Text(
-                'Create my first capsule →',
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w700),
-              ),
+              child: const Text('Create my first capsule →',
+                  style:
+                      TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             ),
           ),
         ],
@@ -568,15 +799,13 @@ class _WelcomeSheet extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 44,
-          height: 44,
+          width: 44, height: 44,
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.06),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Center(
-            child: Text(emoji, style: const TextStyle(fontSize: 20)),
-          ),
+              child: Text(emoji, style: const TextStyle(fontSize: 20))),
         ),
         const SizedBox(width: 14),
         Column(
@@ -590,8 +819,7 @@ class _WelcomeSheet extends StatelessWidget {
             const SizedBox(height: 2),
             Text(subtitle,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.4),
-                    fontSize: 12)),
+                    color: Colors.white.withOpacity(0.4), fontSize: 12)),
           ],
         ),
       ],
@@ -622,13 +850,11 @@ class _EmptyStateState extends State<_EmptyState>
     super.initState();
     _controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 500));
-    _fade =
-        CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.08),
       end: Offset.zero,
-    ).animate(
-        CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     _controller.forward();
   }
 
@@ -642,19 +868,12 @@ class _EmptyStateState extends State<_EmptyState>
   Widget build(BuildContext context) {
     final isAll = widget.filter == CapsuleFilter.all;
     final isUpcoming = widget.filter == CapsuleFilter.upcoming;
-
-    final emoji = isAll
-        ? '📦'
-        : isUpcoming
-            ? '⏳'
-            : '🔓';
-
+    final emoji = isAll ? '📦' : isUpcoming ? '⏳' : '🔓';
     final headline = isAll
         ? 'Seal your first memory'
         : isUpcoming
             ? 'No upcoming capsules'
             : 'Nothing unlocked yet';
-
     final subtext = isAll
         ? 'Drop in photos, notes or voice memos.\nOpen them when the time is right.'
         : isUpcoming
@@ -672,37 +891,31 @@ class _EmptyStateState extends State<_EmptyState>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 80,
-                  height: 80,
+                  width: 80, height: 80,
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.05),
                     borderRadius: BorderRadius.circular(22),
                   ),
                   child: Center(
-                    child: Text(emoji,
-                        style: const TextStyle(fontSize: 38)),
-                  ),
+                      child:
+                          Text(emoji, style: const TextStyle(fontSize: 38))),
                 ),
                 const SizedBox(height: 20),
-                Text(
-                  headline,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+                Text(headline,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center),
                 const SizedBox(height: 8),
-                Text(
-                  subtext,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.4),
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+                Text(subtext,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.4),
+                      fontSize: 14,
+                      height: 1.5,
+                    ),
+                    textAlign: TextAlign.center),
                 if (isAll) ...[
                   const SizedBox(height: 28),
                   SizedBox(
@@ -718,11 +931,9 @@ class _EmptyStateState extends State<_EmptyState>
                         elevation: 0,
                       ),
                       icon: const Icon(Icons.add, size: 20),
-                      label: const Text(
-                        'Create your first capsule',
-                        style: TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w700),
-                      ),
+                      label: const Text('Create your first capsule',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700)),
                     ),
                   ),
                 ],
@@ -765,31 +976,29 @@ class _CapsuleCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool isCollaborator;
 
   const _CapsuleCard({
     required this.data,
     required this.onTap,
     required this.onLongPress,
+    this.isCollaborator = false,
   });
 
   String _timeLabel(DateTime unlockDate, bool isUnlocked) {
     if (isUnlocked) {
       final diff = DateTime.now().difference(unlockDate);
-      if (diff.inDays >= 1) {
+      if (diff.inDays >= 1)
         return 'Opened ${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
-      }
-      if (diff.inHours >= 1) {
+      if (diff.inHours >= 1)
         return 'Opened ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
-      }
       return 'Just opened';
     } else {
       final diff = unlockDate.difference(DateTime.now());
-      if (diff.inDays >= 1) {
+      if (diff.inDays >= 1)
         return 'Opens in ${diff.inDays} day${diff.inDays == 1 ? '' : 's'}';
-      }
-      if (diff.inHours >= 1) {
+      if (diff.inHours >= 1)
         return 'Opens in ${diff.inHours} hour${diff.inHours == 1 ? '' : 's'}';
-      }
       return 'Opens in ${diff.inMinutes} min';
     }
   }
@@ -801,11 +1010,9 @@ class _CapsuleCard extends StatelessWidget {
     final unlockDate = DateTime.tryParse(data['unlockDate'] ?? '');
     final isUnlocked =
         unlockDate != null && DateTime.now().isAfter(unlockDate);
-
     final unlockStr = unlockDate != null
         ? DateFormat('MMM d, yyyy').format(unlockDate.toLocal())
         : '';
-
     final timeLabel =
         unlockDate != null ? _timeLabel(unlockDate, isUnlocked) : '';
 
@@ -831,40 +1038,54 @@ class _CapsuleCard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 48, height: 48,
                 decoration: BoxDecoration(
                   color: AppTheme.cardDark2,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                  child: Text(emoji,
-                      style: const TextStyle(fontSize: 24)),
-                ),
+                    child:
+                        Text(emoji, style: const TextStyle(fontSize: 24))),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        if (isCollaborator)
+                          Container(
+                            margin: const EdgeInsets.only(left: 6),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text('shared',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.4),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                )),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      unlockStr,
-                      style: const TextStyle(
-                        color: AppTheme.mutedText2,
-                        fontSize: 13,
-                      ),
-                    ),
+                    Text(unlockStr,
+                        style: const TextStyle(
+                            color: AppTheme.mutedText2, fontSize: 13)),
                   ],
                 ),
               ),
@@ -884,22 +1105,16 @@ class _CapsuleCard extends StatelessWidget {
                     child: Text(
                       isUnlocked ? 'Unlocked' : 'Locked',
                       style: TextStyle(
-                        color: isUnlocked
-                            ? AppTheme.green
-                            : AppTheme.blue,
+                        color: isUnlocked ? AppTheme.green : AppTheme.blue,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    timeLabel,
-                    style: const TextStyle(
-                      color: AppTheme.mutedText,
-                      fontSize: 12,
-                    ),
-                  ),
+                  Text(timeLabel,
+                      style: const TextStyle(
+                          color: AppTheme.mutedText, fontSize: 12)),
                 ],
               ),
             ],

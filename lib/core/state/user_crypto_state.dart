@@ -4,10 +4,12 @@ import 'dart:convert';
 
 class UserCryptoState {
   static SecretKey? _userMasterKey;
+  static String? _currentUserId; // ✅ track who is logged in
   static const _storage = FlutterSecureStorage();
   static const _keyPrefix = 'boxed_master_key_';
 
   static SecretKey? get userMasterKeyOrNull => _userMasterKey;
+  static String? get currentUserId => _currentUserId; // ✅ expose userId
 
   static SecretKey get userMasterKey {
     if (_userMasterKey == null) throw Exception('Master key not initialized');
@@ -30,6 +32,7 @@ class UserCryptoState {
       nonce: utf8.encode('$userId:$salt'),
     );
     _userMasterKey = key;
+    _currentUserId = userId; // ✅ set on login
     final bytes = await key.extractBytes();
     await _storage.write(
       key: '$_keyPrefix$userId',
@@ -38,6 +41,7 @@ class UserCryptoState {
   }
 
   static Future<void> loadFromStorage(String userId) async {
+    _currentUserId = userId; // ✅ set on session restore
     if (_userMasterKey != null) return;
     final encoded = await _storage.read(key: '$_keyPrefix$userId');
     if (encoded == null) throw Exception('Master key not found. Please log in again.');
@@ -46,10 +50,12 @@ class UserCryptoState {
 
   static Future<void> clearForUser(String userId) async {
     _userMasterKey = null;
+    _currentUserId = null; // ✅ clear on logout
     await _storage.delete(key: '$_keyPrefix$userId');
   }
 
   static void clear() {
     _userMasterKey = null;
+    _currentUserId = null;
   }
 }

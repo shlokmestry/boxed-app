@@ -6,6 +6,7 @@ class AppwriteConstants {
   static const String usersTable = 'users';
   static const String capsulesTable = 'capsules';
   static const String memoriesTable = 'memories';
+  static const String invitesTable = 'invites';
 
   static const String memoriesBucket = 'memories';
 }
