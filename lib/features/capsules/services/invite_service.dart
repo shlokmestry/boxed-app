@@ -61,6 +61,29 @@ class InviteService {
     return SecretKey(bytes);
   }
 
+  // ── Search users by partial username (for autocomplete) ───────────────────
+
+Future<List<Map<String, dynamic>>> searchUsersByUsername(
+    String query) async {
+  try {
+    final docs = await _db.listDocuments(
+      databaseId: AppwriteConstants.databaseId,
+      collectionId: AppwriteConstants.usersTable,
+      queries: [
+        Query.startsWith('username_lowercase', query.toLowerCase()),
+        Query.limit(8),
+      ],
+    );
+    return docs.documents.map((d) => d.data).toList();
+  } catch (_) {
+    return [];
+  }
+}
+
+
+
+
+
   // ── Search user by username ───────────────────────────────────────────────
 
   Future<Map<String, dynamic>?> getUserByUsername(String username) async {
