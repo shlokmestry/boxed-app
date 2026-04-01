@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:boxed_app/core/router/app_router.dart';
@@ -22,11 +23,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _displayNameController = TextEditingController();
   final _bioController = TextEditingController();
 
+  // ── Avatar emoji picker ───────────────────────────────────────────────────
+  static const _avatarEmojis = [
+    '😊', '😎', '🤩', '🥰', '😄', '🤓', '😏', '🥸',
+    '🧑', '👩', '👨', '🧒', '👧', '👦', '🧔', '👱',
+    '🦊', '🐺', '🦁', '🐻', '🐼', '🐨', '🦄', '🐸',
+    '🌟', '⚡', '🔥', '🌊', '🌙', '☀️', '🌈', '❄️',
+    '🎭', '🎸', '🎨', '📸', '✈️', '🚀', '⚽', '🏄',
+  ];
+
+  String _selectedAvatarEmoji = '';
+
   @override
   void initState() {
     super.initState();
-    // ✅ Defer _load() until after the first frame so CapsuleProvider
-    // doesn't call notifyListeners() while the widget tree is still building.
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -50,6 +60,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         setState(() {
           _profileData = data;
+          _selectedAvatarEmoji =
+              (data?['avatarEmoji'] as String? ?? '').trim();
           _loading = false;
         });
       }
@@ -58,11 +70,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // ── Edit profile sheet ────────────────────────────────────────────────────
+
   void _showEditProfile() {
     final displayName = _profileData?['displayName'] as String? ?? '';
     final bio = _profileData?['bio'] as String? ?? '';
     _displayNameController.text = displayName;
     _bioController.text = bio;
+
+    // Local state for avatar selection within the sheet
+    String sheetAvatar = _selectedAvatarEmoji;
 
     showModalBottomSheet(
       context: context,
@@ -71,112 +88,204 @@ class _ProfileScreenState extends State<ProfileScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          24, 20, 24,
-          MediaQuery.of(ctx).viewInsets.bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36, height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            24, 20, 24,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text('Edit Profile',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 20),
-
-            Text('Display Name',
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.5), fontSize: 13)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _displayNameController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Your name',
-                hintStyle: const TextStyle(color: AppTheme.mutedText2),
-                filled: true,
-                fillColor: AppTheme.cardDark2,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 14),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            Text('Bio',
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.5), fontSize: 13)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _bioController,
-              maxLines: 3,
-              maxLength: 120,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'A little about you...',
-                hintStyle: const TextStyle(color: AppTheme.mutedText2),
-                filled: true,
-                fillColor: AppTheme.cardDark2,
-                counterStyle:
-                    const TextStyle(color: AppTheme.mutedText2),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 14),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: OutlinedButton(
-                onPressed: () async {
-                  final auth = context.read<AuthProvider>();
-                  try {
-                    await _authService.updateUserProfile(
-                      userId: auth.user!.$id,
-                      displayName: _displayNameController.text.trim(),
-                      bio: _bioController.text.trim(),
-                    );
-                    if (!mounted) return;
-                    Navigator.pop(ctx);
-                    _load();
-                  } catch (_) {
-                    if (!mounted) return;
-                    Navigator.pop(ctx);
-                  }
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('Save Changes',
+                const SizedBox(height: 20),
+                const Text('Edit Profile',
                     style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w600)),
-              ),
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 24),
+
+                // ── Avatar emoji picker ───────────────────────
+                Text('Avatar',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 13)),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 52,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _avatarEmojis.length,
+                    itemBuilder: (_, i) {
+                      final e = _avatarEmojis[i];
+                      final selected = sheetAvatar == e;
+                      return GestureDetector(
+                        onTap: () => setSheetState(() => sheetAvatar = e),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          margin: const EdgeInsets.only(right: 8),
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? Colors.white
+                                : AppTheme.cardDark2,
+                            borderRadius: BorderRadius.circular(12),
+                            border: selected
+                                ? null
+                                : Border.all(
+                                    color: Colors.white.withOpacity(0.06)),
+                          ),
+                          child: Center(
+                            child: Text(e,
+                                style: const TextStyle(fontSize: 22)),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // ── Username (read-only) ──────────────────────
+                Text('Username',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 13)),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.cardDark2,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '@${_profileData?['username'] ?? ''}',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 15),
+                      ),
+                      const Spacer(),
+                      Icon(Icons.lock_outline,
+                          color: Colors.white.withOpacity(0.2), size: 14),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text('Username cannot be changed',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.25),
+                        fontSize: 11)),
+                const SizedBox(height: 16),
+
+                // ── Display name ──────────────────────────────
+                Text('Display Name',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 13)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _displayNameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Your name',
+                    hintStyle:
+                        const TextStyle(color: AppTheme.mutedText2),
+                    filled: true,
+                    fillColor: AppTheme.cardDark2,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Bio ───────────────────────────────────────
+                Text('Bio',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 13)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _bioController,
+                  maxLines: 3,
+                  maxLength: 120,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'A little about you...',
+                    hintStyle:
+                        const TextStyle(color: AppTheme.mutedText2),
+                    filled: true,
+                    fillColor: AppTheme.cardDark2,
+                    counterStyle:
+                        const TextStyle(color: AppTheme.mutedText2),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      final auth = context.read<AuthProvider>();
+                      try {
+                        await _authService.updateUserProfile(
+                          userId: auth.user!.$id,
+                          displayName:
+                              _displayNameController.text.trim(),
+                          bio: _bioController.text.trim(),
+                          avatarEmoji: sheetAvatar,
+                        );
+                        if (!mounted) return;
+                        setState(
+                            () => _selectedAvatarEmoji = sheetAvatar);
+                        Navigator.pop(ctx);
+                        _load();
+                      } catch (_) {
+                        if (!mounted) return;
+                        Navigator.pop(ctx);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Save Changes',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -204,30 +313,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final bio = _profileData?['bio'] as String? ?? '';
     final email = auth.user?.email ?? '';
     final memberSince = _memberSince();
+    final avatarEmoji = _selectedAvatarEmoji;
 
+    // Avatar: emoji if set, otherwise initials
     final initials = displayName.isNotEmpty
         ? displayName[0].toUpperCase()
         : email.isNotEmpty
             ? email[0].toUpperCase()
             : 'U';
 
+    // Most recent capsule using $createdAt
     Map<String, dynamic>? recentCapsule;
     if (capsules.isNotEmpty) {
       final sorted = [...capsules];
       sorted.sort((a, b) {
-        final aDate = DateTime.tryParse(a['createdAt'] ?? '') ?? DateTime(0);
-        final bDate = DateTime.tryParse(b['createdAt'] ?? '') ?? DateTime(0);
+        final aDate =
+            DateTime.tryParse(a['\$createdAt'] ?? a['createdAt'] ?? '') ??
+                DateTime(0);
+        final bDate =
+            DateTime.tryParse(b['\$createdAt'] ?? b['createdAt'] ?? '') ??
+                DateTime(0);
         return bDate.compareTo(aDate);
       });
       recentCapsule = sorted.first;
     }
 
+    final totalCapsules = capsules.length;
+    final unlockedCount = capsules.where((c) {
+      final u = DateTime.tryParse(c['unlockDate'] ?? '');
+      return u != null && DateTime.now().isAfter(u);
+    }).length;
+    final lockedCount = totalCapsules - unlockedCount;
+
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0A),
       body: CustomScrollView(
         slivers: [
+          // ── App bar + header ────────────────────────────────
           SliverAppBar(
-            expandedHeight: _loading ? 280 : (bio.isNotEmpty ? 310 : 280),
+            expandedHeight: bio.isNotEmpty ? 320 : 290,
             pinned: true,
             backgroundColor: const Color(0xFF0A0A0A),
             leading: IconButton(
@@ -257,18 +381,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
+                  // Background gradient
                   Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF1C1C1C),
-                          Color(0xFF0A0A0A),
-                        ],
+                        colors: [Color(0xFF1C1C1C), Color(0xFF0A0A0A)],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
                     ),
                   ),
+                  // Decorative circles
                   Positioned(
                     top: -40, right: -40,
                     child: Container(
@@ -289,30 +412,72 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
+
+                  // Profile info
                   Positioned(
-                    bottom: 32, left: 0, right: 0,
+                    bottom: 28, left: 0, right: 0,
                     child: _loading
                         ? _headerSkeleton()
                         : Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Container(
-                                width: 84, height: 84,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white,
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    initials,
-                                    style: const TextStyle(
-                                      color: Colors.black,
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.w700,
+                              // ── Avatar ──────────────────────
+                              GestureDetector(
+                                onTap: _showEditProfile,
+                                child: Stack(
+                                  children: [
+                                    Container(
+                                      width: 84,
+                                      height: 84,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: avatarEmoji.isNotEmpty
+                                            ? AppTheme.cardDark2
+                                            : Colors.white,
+                                        border: Border.all(
+                                          color: Colors.white
+                                              .withOpacity(0.15),
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: avatarEmoji.isNotEmpty
+                                            ? Text(avatarEmoji,
+                                                style: const TextStyle(
+                                                    fontSize: 38))
+                                            : Text(initials,
+                                                style: const TextStyle(
+                                                  color: Colors.black,
+                                                  fontSize: 32,
+                                                  fontWeight:
+                                                      FontWeight.w700,
+                                                )),
+                                      ),
                                     ),
-                                  ),
+                                    // Edit badge
+                                    Positioned(
+                                      bottom: 0, right: 0,
+                                      child: Container(
+                                        width: 24, height: 24,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                              color:
+                                                  const Color(0xFF0A0A0A),
+                                              width: 2),
+                                        ),
+                                        child: const Icon(Icons.edit,
+                                            size: 12,
+                                            color: Colors.black),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(height: 14),
+
+                              // ── Display name ─────────────────
                               Text(
                                 displayName.isNotEmpty
                                     ? displayName
@@ -324,16 +489,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   letterSpacing: 0.3,
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                username.isNotEmpty ? '@$username' : email,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.55),
-                                  fontSize: 14,
+                              const SizedBox(height: 6),
+
+                              // ── Username pill ─────────────────
+                              if (username.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Colors.white.withOpacity(0.08),
+                                    borderRadius:
+                                        BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    '@$username',
+                                    style: TextStyle(
+                                      color:
+                                          Colors.white.withOpacity(0.6),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ),
-                              ),
+
+                              // ── Member since ──────────────────
                               if (memberSince.isNotEmpty) ...[
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 6),
                                 Text(
                                   memberSince,
                                   style: TextStyle(
@@ -342,15 +524,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ),
                                 ),
                               ],
+
+                              // ── Bio ───────────────────────────
                               if (bio.isNotEmpty) ...[
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 10),
                                 Padding(
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 40),
                                   child: Text(
                                     bio,
                                     style: TextStyle(
-                                      color: Colors.white.withOpacity(0.5),
+                                      color:
+                                          Colors.white.withOpacity(0.5),
                                       fontSize: 13,
                                       height: 1.4,
                                     ),
@@ -368,6 +553,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
 
+          // ── Body ─────────────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
@@ -376,18 +562,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // ── Stats ─────────────────────────────
                         Container(
                           padding: const EdgeInsets.symmetric(
                               vertical: 20, horizontal: 24),
                           decoration: BoxDecoration(
                             color: const Color(0xFF111111),
                             borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.05)),
                           ),
                           child: Row(
                             children: [
                               Expanded(
                                 child: _statItem(
-                                  value: capsules.length.toString(),
+                                  value: totalCapsules.toString(),
                                   label: 'Capsules',
                                   icon: '📦',
                                 ),
@@ -398,12 +587,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               Expanded(
                                 child: _statItem(
-                                  value: capsules.where((c) {
-                                    final u = DateTime.tryParse(
-                                        c['unlockDate'] ?? '');
-                                    return u != null &&
-                                        DateTime.now().isAfter(u);
-                                  }).length.toString(),
+                                  value: unlockedCount.toString(),
                                   label: 'Unlocked',
                                   icon: '🔓',
                                 ),
@@ -414,12 +598,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               Expanded(
                                 child: _statItem(
-                                  value: capsules.where((c) {
-                                    final u = DateTime.tryParse(
-                                        c['unlockDate'] ?? '');
-                                    return u != null &&
-                                        DateTime.now().isBefore(u);
-                                  }).length.toString(),
+                                  value: lockedCount.toString(),
                                   label: 'Locked',
                                   icon: '🔒',
                                 ),
@@ -429,6 +608,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         const SizedBox(height: 28),
 
+                        // ── Most recent capsule ───────────────
                         if (recentCapsule != null) ...[
                           Text(
                             'Most Recent',
@@ -436,16 +616,130 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               color: Colors.white.withOpacity(0.45),
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
                             ),
                           ),
                           const SizedBox(height: 12),
                           _RecentCapsuleCard(data: recentCapsule),
+                          const SizedBox(height: 28),
                         ],
+
+                        // ── Danger zone ───────────────────────
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF111111),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.05)),
+                          ),
+                          child: Column(
+                            children: [
+                              _settingsRow(
+                                icon: Icons.settings_outlined,
+                                label: 'Settings',
+                                onTap: () async {
+                                  await Navigator.pushNamed(
+                                      context, AppRouter.settings);
+                                  _load();
+                                },
+                              ),
+                              Divider(
+                                  height: 1,
+                                  color: Colors.white.withOpacity(0.05)),
+                              _settingsRow(
+                                icon: Icons.logout,
+                                label: 'Sign out',
+                                color: AppTheme.red,
+                                onTap: () async {
+                                  HapticFeedback.mediumImpact();
+                                  final ok = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      backgroundColor:
+                                          const Color(0xFF1A1A1A),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(16)),
+                                      title: const Text('Sign out?',
+                                          style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight:
+                                                  FontWeight.w700)),
+                                      content: Text(
+                                        'You\'ll need to sign back in.',
+                                        style: TextStyle(
+                                            color: Colors.white
+                                                .withOpacity(0.6)),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('Cancel',
+                                              style: TextStyle(
+                                                  color: Colors.white)),
+                                        ),
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: Text('Sign out',
+                                              style: TextStyle(
+                                                  color: AppTheme.red)),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (ok == true && mounted) {
+                                    await context
+                                        .read<AuthProvider>()
+                                        .signOut();
+                                    if (mounted) {
+                                      Navigator.pushNamedAndRemoveUntil(
+                                        context,
+                                        AppRouter.login,
+                                        (_) => false,
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _settingsRow({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    final c = color ?? Colors.white;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(
+          children: [
+            Icon(icon, color: c.withOpacity(0.7), size: 20),
+            const SizedBox(width: 14),
+            Text(label,
+                style: TextStyle(
+                    color: c,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500)),
+            const Spacer(),
+            Icon(Icons.chevron_right,
+                color: Colors.white.withOpacity(0.2), size: 18),
+          ],
+        ),
       ),
     );
   }
@@ -515,6 +809,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+// ─── Recent Capsule Card ──────────────────────────────────────────────────────
+
 class _RecentCapsuleCard extends StatelessWidget {
   final Map<String, dynamic> data;
   const _RecentCapsuleCard({required this.data});
@@ -553,8 +849,7 @@ class _RecentCapsuleCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Center(
-              child: Text(emoji,
-                  style: const TextStyle(fontSize: 22)),
+              child: Text(emoji, style: const TextStyle(fontSize: 22)),
             ),
           ),
           const SizedBox(width: 14),

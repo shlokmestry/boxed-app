@@ -91,6 +91,7 @@ class AuthService {
           'email': email.toLowerCase(),
           'bio': '',
           'photoUrl': '',
+          'avatarEmoji': '',
           'encryptionSalt': salt,
         },
       );
@@ -169,11 +170,12 @@ class AuthService {
     }
   }
 
-  // ✅ Renamed to match profile_screen.dart call
+  // ✅ Now saves avatarEmoji alongside displayName and bio
   Future<void> updateUserProfile({
     required String userId,
     required String displayName,
     required String bio,
+    String avatarEmoji = '',
   }) async {
     final docs = await _db.listDocuments(
       databaseId: AppwriteConstants.databaseId,
@@ -190,6 +192,7 @@ class AuthService {
       data: {
         'displayName': displayName,
         'bio': bio,
+        'avatarEmoji': avatarEmoji,
       },
     );
   }
