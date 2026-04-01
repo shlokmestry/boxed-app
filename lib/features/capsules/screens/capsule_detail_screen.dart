@@ -16,6 +16,7 @@ import 'package:boxed_app/features/capsules/providers/capsule_provider.dart';
 import 'package:boxed_app/features/capsules/services/capsule_service.dart';
 import 'package:boxed_app/features/capsules/services/invite_service.dart';
 import 'package:boxed_app/features/memories/services/memory_service.dart';
+import 'package:boxed_app/core/router/app_router.dart';
 
 class CapsuleDetailScreen extends StatefulWidget {
   final String capsuleId;
@@ -703,45 +704,41 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 ),
               ),
 
-              const SizedBox(height: 12),
-              Text('🔒 All memories are end-to-end encrypted.',
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.2), fontSize: 12),
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 20),
+             const SizedBox(height: 12),
+Text('🔒 All memories are end-to-end encrypted.',
+    style: TextStyle(
+        color: Colors.white.withOpacity(0.2), fontSize: 12),
+    textAlign: TextAlign.center),
+const SizedBox(height: 20),
 
-              // ✅ Add memory button — available to ALL members
-              // (creator + collaborators) while capsule is locked
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    final added = await Navigator.pushNamed(
-                      context,
-                      AppRouter.addMemory,
-                      arguments: widget.capsuleId,
-                    );
-                    if (added == true && mounted) _load();
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: BorderSide(
-                        color: Colors.white.withOpacity(0.2)),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: Icon(Icons.add_photo_alternate_outlined,
-                      size: 18,
-                      color: Colors.white.withOpacity(0.6)),
-                  label: Text('Add a memory',
-                      style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white.withOpacity(0.6))),
-                ),
-              ),
-
-              const Spacer(),
+// ✅ Add memory button — free while capsule hasn't unlocked yet
+SizedBox(
+  width: double.infinity,
+  height: 48,
+  child: OutlinedButton.icon(
+    onPressed: () async {
+      final added = await Navigator.pushNamed(
+        context,
+        AppRouter.addMemory,
+        arguments: widget.capsuleId,
+      );
+      if (added == true && mounted) _load();
+    },
+    style: OutlinedButton.styleFrom(
+      foregroundColor: Colors.white,
+      side: BorderSide(color: Colors.white.withOpacity(0.2)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
+    ),
+    icon: Icon(Icons.add_photo_alternate_outlined,
+        size: 18, color: Colors.white.withOpacity(0.6)),
+    label: Text('Add a memory',
+        style: TextStyle(
+            fontSize: 14,
+            color: Colors.white.withOpacity(0.6))),
+  ),
+),
+const Spacer(),
             ],
           ),
         ),
