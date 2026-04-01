@@ -59,7 +59,7 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _status = AuthStatus.error;
-      _error = _parseError(e.toString()); // ✅ fixed
+      _error = _parseError(e.toString());
       notifyListeners();
       return false;
     }
@@ -88,7 +88,7 @@ class AuthProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _status = AuthStatus.error;
-      _error = _parseError(e.toString()); // ✅ fixed
+      _error = _parseError(e.toString());
       notifyListeners();
       return false;
     }
@@ -106,13 +106,17 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+
+  Future<void> signOut() async => logout();
+
   Future<bool> checkUsername() async {
     if (_user == null) return false;
     return await _authService.hasUsername(_user!.$id);
   }
 
   String _parseError(String raw) {
-    if (raw.contains('user_invalid_credentials') || raw.contains('Invalid credentials')) {
+    if (raw.contains('user_invalid_credentials') ||
+        raw.contains('Invalid credentials')) {
       return "That's not it. Maybe your other password?";
     }
     if (raw.contains('account_deleted')) {
