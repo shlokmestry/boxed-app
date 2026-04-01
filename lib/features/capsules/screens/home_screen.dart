@@ -224,10 +224,20 @@ class _HomeScreenState extends State<HomeScreen> {
     await _inviteService.markDeclinedSeen(inviteId);
   }
 
+  // ✅ Fixed: properly awaits all data before showing snackbar
   Future<void> _refresh() async {
-    _load();
-    _loadInvites();
-    await Future.delayed(const Duration(milliseconds: 600));
+    final auth = context.read<AuthProvider>();
+    if (auth.user == null) return;
+    final userId = auth.user!.$id;
+
+    await Future.wait([
+      context.read<CapsuleProvider>().loadCapsules(userId),
+      _loadCollaboratorCapsules(userId),
+      _loadPendingCapsules(userId),
+      _loadDeclinedInvites(userId),
+      _loadInvites(),
+    ]);
+
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: const Row(
@@ -274,21 +284,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return list;
   }
 
-  Map<String, dynamic>? _nextUnlock(List<Map<String, dynamic>> capsules) {
-    final now = DateTime.now();
-    final upcoming = capsules.where((c) {
-      final unlock = DateTime.tryParse(c['unlockDate'] ?? '');
-      return unlock != null && unlock.isAfter(now);
-    }).toList();
-    if (upcoming.isEmpty) return null;
-    upcoming.sort((a, b) {
-      final aDate = DateTime.parse(a['unlockDate']);
-      final bDate = DateTime.parse(b['unlockDate']);
-      return aDate.compareTo(bDate);
-    });
-    return upcoming.first;
-  }
-
   String _nextUnlockLabel(DateTime unlock) {
     final diff = unlock.difference(DateTime.now());
     if (diff.inDays >= 1)
@@ -305,8 +300,8 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete capsule?',
             style: TextStyle(
                 color: Colors.white, fontWeight: FontWeight.w700)),
@@ -405,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: Column(
           children: [
-            // ── Search bar (fixed, never scrolls) ─────────────
+            // ── Search bar ────────────────────────────────────
             Container(
               height: 46,
               decoration: BoxDecoration(
@@ -442,7 +437,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 14),
 
-            // ── Filter chips (fixed, never scrolls) ───────────
+            // ── Filter chips ──────────────────────────────────
             Row(
               children: CapsuleFilter.values.map((f) {
                 final selected = _filter == f;
@@ -480,7 +475,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
 
-            // ── Everything else scrolls ────────────────────────
             Expanded(child: _buildBody(capsuleProvider, bottomPad)),
           ],
         ),
@@ -566,8 +560,6 @@ class _HomeScreenState extends State<HomeScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: EdgeInsets.only(bottom: bottomPad + 80),
         children: [
-          // ── Banners scroll with the list — no more overflow ──
-
           // Next unlock banner
           Builder(builder: (_) {
             if (ownCapsules.isEmpty) return const SizedBox.shrink();
@@ -614,7 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onDecline: () => _declineInvite(invite),
               )),
 
-          // ── Pending capsules (waiting for others) ────────────
+          // Pending capsules
           if (_pendingCapsules.isNotEmpty) ...[
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -651,7 +643,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 8),
           ],
 
-          // ── Own capsules ──────────────────────────────────────
+          // Own capsules
           ...ownCapsules.map((c) => _CapsuleCard(
                 data: c,
                 isCollaborator: false,
@@ -667,7 +659,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               )),
 
-          // ── Shared with you ───────────────────────────────────
+          // Shared with you
           if (_collaboratorCapsules.isNotEmpty) ...[
             if (ownCapsules.isNotEmpty || _pendingCapsules.isNotEmpty)
               Padding(
@@ -711,7 +703,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ─── Declined Banner ─────────────────────────────────────────────────────────
+// ─── Declined Banner ──────────────────────────────────────────────────────────
 
 class _DeclinedBanner extends StatelessWidget {
   final Map<String, dynamic> invite;
@@ -740,9 +732,7 @@ class _DeclinedBanner extends StatelessWidget {
             child: Text(
               '$name declined your capsule invite.',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 13,
-              ),
+                  color: Colors.white.withOpacity(0.7), fontSize: 13),
             ),
           ),
           GestureDetector(
@@ -897,8 +887,8 @@ class _PendingCapsuleCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                    child:
-                        Text(emoji, style: const TextStyle(fontSize: 24))),
+                    child: Text(emoji,
+                        style: const TextStyle(fontSize: 24))),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1012,8 +1002,8 @@ class _WelcomeSheet extends StatelessWidget {
                 elevation: 0,
               ),
               child: const Text('Create my first capsule →',
-                  style:
-                      TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700)),
             ),
           ),
         ],
@@ -1232,6 +1222,13 @@ class _CapsuleCard extends StatelessWidget {
     }
   }
 
+  String? _memoryCountLabel(bool isUnlocked) {
+    if (!isUnlocked) return null;
+    final count = (data['memoryCount'] as num?)?.toInt() ?? 0;
+    if (count == 0) return null;
+    return '$count memor${count == 1 ? 'y' : 'ies'}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final name = (data['name'] ?? 'Untitled').toString();
@@ -1244,6 +1241,7 @@ class _CapsuleCard extends StatelessWidget {
         : '';
     final timeLabel =
         unlockDate != null ? _timeLabel(unlockDate, isUnlocked) : '';
+    final memoryLabel = _memoryCountLabel(isUnlocked);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1313,9 +1311,27 @@ class _CapsuleCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(unlockStr,
-                        style: const TextStyle(
-                            color: AppTheme.mutedText2, fontSize: 13)),
+                    if (memoryLabel != null)
+                      Row(
+                        children: [
+                          Text(unlockStr,
+                              style: const TextStyle(
+                                  color: AppTheme.mutedText2,
+                                  fontSize: 13)),
+                          Text(' · ',
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.2),
+                                  fontSize: 13)),
+                          Text(memoryLabel,
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.35),
+                                  fontSize: 12)),
+                        ],
+                      )
+                    else
+                      Text(unlockStr,
+                          style: const TextStyle(
+                              color: AppTheme.mutedText2, fontSize: 13)),
                   ],
                 ),
               ),

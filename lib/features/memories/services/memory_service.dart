@@ -24,6 +24,27 @@ class MemoryService {
     return result.documents.map((d) => d.data).toList();
   }
 
+  // ── Increment memoryCount on capsule ──────────────────────────────────────
+
+  Future<void> _incrementMemoryCount(String capsuleId) async {
+    try {
+      final doc = await _db.getDocument(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.capsulesTable,
+        documentId: capsuleId,
+      );
+      final current = (doc.data['memoryCount'] as num?)?.toInt() ?? 0;
+      await _db.updateDocument(
+        databaseId: AppwriteConstants.databaseId,
+        collectionId: AppwriteConstants.capsulesTable,
+        documentId: capsuleId,
+        data: {'memoryCount': current + 1},
+      );
+    } catch (_) {
+      // Non-fatal — memory still saved even if count update fails
+    }
+  }
+
   Future<void> addTextMemory({
     required String capsuleId,
     required String userId,
@@ -50,6 +71,9 @@ class MemoryService {
         'isEncrypted': true,
       },
     );
+
+    // ✅ Increment count after saving
+    await _incrementMemoryCount(capsuleId);
   }
 
   Future<void> addPhotoMemory({
@@ -60,14 +84,12 @@ class MemoryService {
   }) async {
     final memoryId = _uuid.v4();
 
-    // Read + encrypt image bytes
     final bytes = await imageFile.readAsBytes();
     final encryptedBytes = await EncryptionService.encryptBytes(
       data: bytes,
       capsuleKey: capsuleKey,
     );
 
-    // Upload encrypted file to Appwrite Storage
     await _storage.createFile(
       bucketId: AppwriteConstants.memoriesBucket,
       fileId: memoryId,
@@ -77,7 +99,6 @@ class MemoryService {
       ),
     );
 
-    // Save memory doc
     await _db.createDocument(
       databaseId: AppwriteConstants.databaseId,
       collectionId: AppwriteConstants.memoriesTable,
@@ -92,6 +113,9 @@ class MemoryService {
         'isEncrypted': true,
       },
     );
+
+    // ✅ Increment count after saving
+    await _incrementMemoryCount(capsuleId);
   }
 
   Future<String> decryptTextMemory({
