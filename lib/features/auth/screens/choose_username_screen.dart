@@ -18,7 +18,6 @@ class ChooseUsernameScreen extends StatefulWidget {
 class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
   final _controller = TextEditingController();
   final _authService = AuthService();
-
   final _storage = const FlutterSecureStorage();
 
   bool _checking = false;
@@ -171,7 +170,6 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
         backgroundColor: Colors.black,
         automaticallyImplyLeading: false,
       ),
-      // ✅ SingleChildScrollView prevents overflow when keyboard appears
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -179,10 +177,8 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-
               const Text('📦', style: TextStyle(fontSize: 56)),
               const SizedBox(height: 24),
-
               const Text(
                 'Pick your username',
                 style: TextStyle(
@@ -192,7 +188,6 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-
               Text(
                 'Claim your corner of Boxed',
                 style: TextStyle(
@@ -261,8 +256,6 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                       ),
                     ),
                   ),
-
-                  // Character counter
                   Positioned(
                     right: 4,
                     top: -20,
@@ -292,6 +285,8 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
 
               const SizedBox(height: 32),
 
+              // ✅ Fix: use unique keys that change based on state
+              // so AnimatedSwitcher never sees duplicate keys
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -299,11 +294,12 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                   duration: const Duration(milliseconds: 200),
                   child: _isAvailable && !_isSaving
                       ? ElevatedButton(
-                          key: const ValueKey('filled'),
+                          key: const ValueKey('btn_active'),
                           onPressed: _confirm,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: Colors.black,
+                            minimumSize: const Size(double.infinity, 52),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
                             elevation: 0,
@@ -316,10 +312,11 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                           ),
                         )
                       : OutlinedButton(
-                          key: const ValueKey('outlined'),
+                          key: const ValueKey('btn_inactive'),
                           onPressed: null,
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 52),
                             side: const BorderSide(color: Colors.white24),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
@@ -343,7 +340,6 @@ class _ChooseUsernameScreenState extends State<ChooseUsernameScreen> {
                 ),
               ),
 
-              // Extra bottom padding so content clears the keyboard
               const SizedBox(height: 40),
             ],
           ),
