@@ -224,10 +224,20 @@ class _HomeScreenState extends State<HomeScreen> {
     await _inviteService.markDeclinedSeen(inviteId);
   }
 
+  // ✅ Fixed: properly awaits all data before showing snackbar
   Future<void> _refresh() async {
-    _load();
-    _loadInvites();
-    await Future.delayed(const Duration(milliseconds: 600));
+    final auth = context.read<AuthProvider>();
+    if (auth.user == null) return;
+    final userId = auth.user!.$id;
+
+    await Future.wait([
+      context.read<CapsuleProvider>().loadCapsules(userId),
+      _loadCollaboratorCapsules(userId),
+      _loadPendingCapsules(userId),
+      _loadDeclinedInvites(userId),
+      _loadInvites(),
+    ]);
+
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: const Row(
@@ -240,7 +250,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       backgroundColor: const Color(0xFF1A1A1A),
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       duration: const Duration(seconds: 2),
     ));
   }
@@ -444,8 +455,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
-                        color:
-                            selected ? Colors.white : AppTheme.cardDark2,
+                        color: selected
+                            ? Colors.white
+                            : AppTheme.cardDark2,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(label,
@@ -1210,7 +1222,6 @@ class _CapsuleCard extends StatelessWidget {
     }
   }
 
-  // ✅ Build memory count label — only for unlocked capsules
   String? _memoryCountLabel(bool isUnlocked) {
     if (!isUnlocked) return null;
     final count = (data['memoryCount'] as num?)?.toInt() ?? 0;
@@ -1300,8 +1311,6 @@ class _CapsuleCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    // ✅ Show date + memory count on same row for unlocked
-                    // or just date for locked
                     if (memoryLabel != null)
                       Row(
                         children: [
