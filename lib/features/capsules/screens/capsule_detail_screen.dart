@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:boxed_app/core/router/app_router.dart';
 import 'package:boxed_app/core/services/encryption_service.dart';
 import 'package:boxed_app/core/state/capsule_crypto_state.dart';
 import 'package:boxed_app/core/state/user_crypto_state.dart';
@@ -40,8 +41,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   bool _memoriesLoading = false;
 
   List<String> _collaboratorUsernames = [];
-
-  // For pending stage — invite statuses
   List<Map<String, dynamic>> _inviteStatuses = [];
 
   late ConfettiController _confettiController;
@@ -100,15 +99,12 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       final status = data['status'] as String? ?? 'locked';
       final isCreator = currentUserId == creatorId;
 
-      // ── Pending stage — only creator sees this ────────────────
       if (status == 'pending' && isCreator) {
-        // Fetch invite statuses to show who has/hasn't responded
         await _loadInviteStatuses();
         setState(() => _stage = _Stage.pending);
         return;
       }
 
-      // ── Key decryption ────────────────────────────────────────
       final isCollaborator = currentUserId != null &&
           currentUserId != creatorId &&
           collaboratorIds.contains(currentUserId);
@@ -134,7 +130,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       );
       CapsuleCryptoState.setKey(widget.capsuleId, capsuleKey);
 
-      // ── Fetch display usernames ───────────────────────────────
       final authService = AuthService();
       final List<String> usernames = [];
       if (isCollaborator) {
@@ -155,9 +150,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           DateTime.parse(data['unlockDate'] as String).toLocal();
       _unlockDate = unlockDate;
 
-      if (data['createdAt'] != null) {
+      // ✅ Fix: Appwrite stores creation time as '$createdAt' in raw data map
+      final rawCreatedAt = data['\$createdAt'] ?? data['createdAt'];
+      if (rawCreatedAt != null) {
         _createdAt =
-            DateTime.tryParse(data['createdAt'].toString())?.toLocal();
+            DateTime.tryParse(rawCreatedAt.toString())?.toLocal();
       }
 
       final now = DateTime.now();
@@ -438,7 +435,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     }
   }
 
-  // ── Pending ──────────────────────────────────────────────────────────────
+  // ── Pending ───────────────────────────────────────────────────────────────
 
   Widget _buildPending() {
     final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
@@ -487,8 +484,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-
-              // ── Invite status list ──────────────────────────
               if (_inviteStatuses.isNotEmpty)
                 Container(
                   width: double.infinity,
@@ -534,8 +529,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                           child: Row(
                             children: [
                               Text(icon,
-                                  style:
-                                      const TextStyle(fontSize: 16)),
+                                  style: const TextStyle(fontSize: 16)),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text('@$username',
@@ -549,8 +543,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                                     horizontal: 8, vertical: 3),
                                 decoration: BoxDecoration(
                                   color: color.withOpacity(0.12),
-                                  borderRadius:
-                                      BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(label,
                                     style: TextStyle(
@@ -566,7 +559,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                     ],
                   ),
                 ),
-
               const SizedBox(height: 20),
               Text(
                 '⏰ Capsule auto-deletes if no response in 24 hours.',
@@ -582,7 +574,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     );
   }
 
-  // ── Locked ──────────────────────────────────────────────────────────────────
+  // ── Locked ────────────────────────────────────────────────────────────────
 
   Widget _buildLocked() {
     final days = _remaining.inDays;
@@ -716,6 +708,39 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   style: TextStyle(
                       color: Colors.white.withOpacity(0.2), fontSize: 12),
                   textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+
+              // ✅ Add memory button — available to ALL members
+              // (creator + collaborators) while capsule is locked
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final added = await Navigator.pushNamed(
+                      context,
+                      AppRouter.addMemory,
+                      arguments: widget.capsuleId,
+                    );
+                    if (added == true && mounted) _load();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                        color: Colors.white.withOpacity(0.2)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: Icon(Icons.add_photo_alternate_outlined,
+                      size: 18,
+                      color: Colors.white.withOpacity(0.6)),
+                  label: Text('Add a memory',
+                      style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.white.withOpacity(0.6))),
+                ),
+              ),
+
               const Spacer(),
             ],
           ),
@@ -726,7 +751,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
 
   Widget _timeTile(String value, String label) {
     return Container(
-      width: 72, height: 72,
+      width: 72,
+      height: 72,
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
@@ -749,6 +775,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       ),
     );
   }
+
+  // ── Unlock Ready ──────────────────────────────────────────────────────────
 
   Widget _buildUnlockReady() {
     final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
@@ -788,7 +816,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               const SizedBox(height: 10),
               Text(
                 'Your memories are ready to be revealed.',
-                style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                style:
+                    TextStyle(color: Colors.white.withOpacity(0.7)),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -806,7 +835,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   icon: const Icon(Icons.lock_open),
                   label: const Text('Reveal Memories',
                       style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w600)),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600)),
                 ),
               ),
               const Spacer(),
@@ -816,6 +846,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       ),
     );
   }
+
+  // ── Revealed ──────────────────────────────────────────────────────────────
 
   Widget _buildRevealed() {
     final title = (_capsuleData?['name'] ?? 'Your Capsule').toString();
@@ -879,7 +911,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   padding: const EdgeInsets.fromLTRB(24, 32, 24, 36),
                   child: Column(
                     children: [
-                      Text(emoji, style: const TextStyle(fontSize: 80)),
+                      Text(emoji,
+                          style: const TextStyle(fontSize: 80)),
                       const SizedBox(height: 20),
                       Text(title,
                           style: const TextStyle(
@@ -906,7 +939,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             color: AppTheme.green.withOpacity(0.15),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                                color: AppTheme.green.withOpacity(0.3)),
+                                color:
+                                    AppTheme.green.withOpacity(0.3)),
                           ),
                           child: Text('🔓  Opened on $openedStr',
                               style: TextStyle(
@@ -919,7 +953,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+                  padding:
+                      const EdgeInsets.fromLTRB(24, 0, 24, 40),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -932,19 +967,23 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             color: const Color(0xFF111111),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                                color: Colors.white.withOpacity(0.06)),
+                                color:
+                                    Colors.white.withOpacity(0.06)),
                           ),
                           child: Row(
                             children: [
                               Container(
-                                width: 48, height: 48,
+                                width: 48,
+                                height: 48,
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.06),
+                                  color:
+                                      Colors.white.withOpacity(0.06),
                                   shape: BoxShape.circle,
                                 ),
                                 child: const Center(
                                   child: Text('⏳',
-                                      style: TextStyle(fontSize: 22)),
+                                      style:
+                                          TextStyle(fontSize: 22)),
                                 ),
                               ),
                               const SizedBox(width: 16),
@@ -961,8 +1000,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                                   const SizedBox(height: 3),
                                   Text('Worth every second.',
                                       style: TextStyle(
-                                        color:
-                                            Colors.white.withOpacity(0.4),
+                                        color: Colors.white
+                                            .withOpacity(0.4),
                                         fontSize: 12,
                                       )),
                                 ],
@@ -980,7 +1019,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             color: const Color(0xFF111111),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                                color: Colors.white.withOpacity(0.06)),
+                                color:
+                                    Colors.white.withOpacity(0.06)),
                           ),
                           child: Text(desc,
                               style: TextStyle(
@@ -995,7 +1035,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                         children: [
                           Expanded(
                               child: Divider(
-                                  color: Colors.white.withOpacity(0.08),
+                                  color:
+                                      Colors.white.withOpacity(0.08),
                                   height: 1)),
                           Padding(
                             padding: const EdgeInsets.symmetric(
@@ -1010,7 +1051,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                           ),
                           Expanded(
                               child: Divider(
-                                  color: Colors.white.withOpacity(0.08),
+                                  color:
+                                      Colors.white.withOpacity(0.08),
                                   height: 1)),
                         ],
                       ),
@@ -1032,8 +1074,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                       else if (_memories.isEmpty && !_memoriesLoading)
                         Center(
                           child: Padding(
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 32),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 32),
                             child: Column(
                               children: [
                                 const Text('📭',
@@ -1055,14 +1097,17 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                         )
                       else
                         Column(
-                          children:
-                              _memories.asMap().entries.map((entry) {
+                          children: _memories
+                              .asMap()
+                              .entries
+                              .map((entry) {
                             final i = entry.key;
                             final memory = entry.value;
                             return _FadeInMemory(
                               index: i,
                               child: memory.type == _MemoryType.text
-                                  ? _TextMemoryCard(text: memory.text!)
+                                  ? _TextMemoryCard(
+                                      text: memory.text!)
                                   : _PhotoMemoryCard(
                                       bytes: memory.bytes!,
                                       onTap: () =>
@@ -1129,11 +1174,13 @@ class _FadeInMemoryState extends State<_FadeInMemory>
     super.initState();
     _controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 500));
-    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _fade =
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.06),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    ).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     Future.delayed(Duration(milliseconds: 80 * widget.index), () {
       if (mounted) _controller.forward();
     });
@@ -1153,6 +1200,8 @@ class _FadeInMemoryState extends State<_FadeInMemory>
     );
   }
 }
+
+// ── Text memory card ──────────────────────────────────────────────────────────
 
 class _TextMemoryCard extends StatelessWidget {
   final String text;
@@ -1186,14 +1235,17 @@ class _TextMemoryCard extends StatelessWidget {
                 color: Colors.white.withOpacity(0.9),
                 fontSize: isShort ? 18 : 15,
                 height: isShort ? 1.6 : 1.7,
-                fontWeight:
-                    isShort ? FontWeight.w500 : FontWeight.w400,
+                fontWeight: isShort
+                    ? FontWeight.w500
+                    : FontWeight.w400,
               )),
         ],
       ),
     );
   }
 }
+
+// ── Photo memory card ─────────────────────────────────────────────────────────
 
 class _PhotoMemoryCard extends StatelessWidget {
   final Uint8List bytes;
@@ -1218,12 +1270,15 @@ class _PhotoMemoryCard extends StatelessWidget {
             errorBuilder: (_, __, ___) => const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('[Could not display image]',
-                      style: TextStyle(color: AppTheme.mutedText)),
+                      style:
+                          TextStyle(color: AppTheme.mutedText)),
                 )),
       ),
     );
   }
 }
+
+// ── Skeleton loading card ─────────────────────────────────────────────────────
 
 class _SkeletonCard extends StatefulWidget {
   final int index;
@@ -1244,7 +1299,8 @@ class _SkeletonCardState extends State<_SkeletonCard>
     _controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1000))
       ..repeat(reverse: true);
-    _anim = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
+    _anim =
+        CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
   }
 
   @override
@@ -1270,6 +1326,8 @@ class _SkeletonCardState extends State<_SkeletonCard>
     );
   }
 }
+
+// ── Memory model ──────────────────────────────────────────────────────────────
 
 enum _MemoryType { text, photo }
 
