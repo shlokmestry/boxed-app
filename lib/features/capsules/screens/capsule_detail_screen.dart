@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:boxed_app/core/router/app_router.dart';
@@ -48,6 +52,10 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   final _memoryService = MemoryService();
   final _inviteService = InviteService();
 
+  // ✅ Share card key
+  final _shareCardKey = GlobalKey();
+  bool _sharingInProgress = false;
+
   @override
   void initState() {
     super.initState();
@@ -69,16 +77,13 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     try {
       final provider = context.read<CapsuleProvider>();
       Map<String, dynamic>? data;
-
       try {
         data = provider.capsules
             .firstWhere((c) => c['capsuleId'] == widget.capsuleId);
       } catch (_) {
         data = null;
       }
-
       data ??= await _capsuleService.fetchCapsuleById(widget.capsuleId);
-
       if (data == null) {
         setState(() {
           _stage = _Stage.error;
@@ -150,11 +155,9 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           DateTime.parse(data['unlockDate'] as String).toLocal();
       _unlockDate = unlockDate;
 
-      // ✅ Fix: Appwrite stores creation time as '$createdAt' in raw data map
       final rawCreatedAt = data['\$createdAt'] ?? data['createdAt'];
       if (rawCreatedAt != null) {
-        _createdAt =
-            DateTime.tryParse(rawCreatedAt.toString())?.toLocal();
+        _createdAt = DateTime.tryParse(rawCreatedAt.toString())?.toLocal();
       }
 
       final now = DateTime.now();
@@ -185,7 +188,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           await _inviteService.fetchCapsuleInvites(widget.capsuleId);
       final authService = AuthService();
       final List<Map<String, dynamic>> statuses = [];
-
       for (final invite in invites) {
         final toUserId = invite['toUserId'] as String? ?? '';
         final profile = await authService.getUserProfile(toUserId);
@@ -195,7 +197,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           'status': invite['status'] as String? ?? 'pending',
         });
       }
-
       if (mounted) setState(() => _inviteStatuses = statuses);
     } catch (_) {}
   }
@@ -204,11 +205,9 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     final currentUserId = UserCryptoState.currentUserId;
     final creatorId = _capsuleData?['creatorId'] as String? ?? '';
     final isCreator = currentUserId == creatorId;
-
     if (_collaboratorUsernames.isEmpty) {
       return isCreator ? 'Just you' : 'Shared capsule';
     }
-
     final others = _collaboratorUsernames.join(', ');
     return isCreator ? 'You + $others' : 'With $others';
   }
@@ -219,7 +218,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       final capsuleKey = CapsuleCryptoState.getKey(widget.capsuleId);
       final raw = await _memoryService.fetchMemories(widget.capsuleId);
       final List<_Memory> result = [];
-
       for (final m in raw) {
         final type = m['type'] as String;
         if (type == 'text') {
@@ -244,7 +242,6 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
           }
         }
       }
-
       if (mounted) setState(() => _memories = result);
     } catch (_) {
     } finally {
@@ -288,11 +285,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A1A),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete capsule?',
-            style: TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w700)),
+            style:
+                TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
         content: Text(
           'This will permanently delete the capsule and all its memories.',
           style: TextStyle(color: Colors.white.withOpacity(0.6)),
@@ -300,8 +297,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: Colors.white)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -316,17 +313,56 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
     if (mounted) Navigator.pop(context);
   }
 
-  void _share() {
+  // ✅ Share card — captures the RepaintBoundary widget as an image
+  Future<void> _shareCard() async {
+    if (_sharingInProgress) return;
+    setState(() => _sharingInProgress = true);
+    HapticFeedback.mediumImpact();
+
+    try {
+      // Give the card a frame to render off-screen
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final boundary = _shareCardKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null) {
+        _fallbackShare();
+        return;
+      }
+
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) {
+        _fallbackShare();
+        return;
+      }
+
+      final bytes = byteData.buffer.asUint8List();
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/boxed_capsule.png');
+      await file.writeAsBytes(bytes);
+
+      final title = (_capsuleData?['name'] ?? 'My Capsule').toString();
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text:
+            '📦 Just opened my Boxed time capsule — "$title". Download Boxed to seal your own memories!',
+      );
+    } catch (_) {
+      _fallbackShare();
+    } finally {
+      if (mounted) setState(() => _sharingInProgress = false);
+    }
+  }
+
+  void _fallbackShare() {
     final title = (_capsuleData?['name'] ?? 'My Capsule').toString();
     final unlockStr = _unlockDate != null
         ? DateFormat('MMM d, yyyy').format(_unlockDate!)
         : '';
-    final box = context.findRenderObject() as RenderBox?;
     Share.share(
       '📦 I just opened my Boxed capsule — "$title" — sealed on $unlockStr. Check out Boxed!',
-      sharePositionOrigin: box != null
-          ? box.localToGlobal(Offset.zero) & box.size
-          : Rect.zero,
     );
   }
 
@@ -395,10 +431,9 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         return Scaffold(
           backgroundColor: Colors.black,
           appBar: AppBar(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            elevation: 0,
-          ),
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              elevation: 0),
           body: Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
@@ -449,17 +484,14 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         elevation: 0,
         centerTitle: true,
         title: Text(title,
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w600)),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.white),
-            onPressed: _delete,
-          ),
+              icon: const Icon(Icons.delete_outline, color: Colors.white),
+              onPressed: _delete),
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _load,
-          ),
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _load),
         ],
       ),
       body: SafeArea(
@@ -479,8 +511,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               const SizedBox(height: 10),
               Text(
                 'Waiting for everyone to respond before sealing.',
-                style: TextStyle(
-                    color: Colors.white.withOpacity(0.5), height: 1.4),
+                style:
+                    TextStyle(color: Colors.white.withOpacity(0.5), height: 1.4),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -491,8 +523,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   decoration: BoxDecoration(
                     color: const Color(0xFF111111),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                        color: Colors.white.withOpacity(0.06)),
+                    border: Border.all(color: Colors.white.withOpacity(0.06)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,13 +554,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             : status == 'declined'
                                 ? 'Declined'
                                 : 'Pending';
-
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Row(
                             children: [
-                              Text(icon,
-                                  style: const TextStyle(fontSize: 16)),
+                              Text(icon, style: const TextStyle(fontSize: 16)),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text('@$username',
@@ -547,10 +576,9 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                                 ),
                                 child: Text(label,
                                     style: TextStyle(
-                                      color: color,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                    )),
+                                        color: color,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600)),
                               ),
                             ],
                           ),
@@ -596,13 +624,11 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         elevation: 0,
         centerTitle: true,
         title: Text(title,
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w600)),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.white),
-            onPressed: _delete,
-          ),
+              icon: const Icon(Icons.delete_outline, color: Colors.white),
+              onPressed: _delete),
         ],
       ),
       body: SafeArea(
@@ -650,8 +676,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                           style: TextStyle(
                               color: Colors.white.withOpacity(0.4),
                               fontSize: 12)),
-                      Text(
-                          '${(progress * 100).toStringAsFixed(0)}% done',
+                      Text('${(progress * 100).toStringAsFixed(0)}% done',
                           style: TextStyle(
                               color: Colors.white.withOpacity(0.4),
                               fontSize: 12)),
@@ -674,15 +699,12 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               if (unlockStr.isNotEmpty)
                 Text('Unlocks on $unlockStr',
                     style: TextStyle(
-                        color: Colors.white.withOpacity(0.45),
-                        fontSize: 13),
+                        color: Colors.white.withOpacity(0.45), fontSize: 13),
                     textAlign: TextAlign.center),
               const SizedBox(height: 12),
-
-              // Members pill
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(20),
@@ -692,26 +714,19 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   children: [
                     const Text('👥', style: TextStyle(fontSize: 13)),
                     const SizedBox(width: 6),
-                    Text(
-                      _buildMembersLabel(),
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 13,
-                      ),
-                    ),
+                    Text(_buildMembersLabel(),
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.5),
+                            fontSize: 13)),
                   ],
                 ),
               ),
-
               const SizedBox(height: 12),
               Text('🔒 All memories are end-to-end encrypted.',
                   style: TextStyle(
                       color: Colors.white.withOpacity(0.2), fontSize: 12),
                   textAlign: TextAlign.center),
               const SizedBox(height: 20),
-
-              // ✅ Add memory button — available to ALL members
-              // (creator + collaborators) while capsule is locked
               SizedBox(
                 width: double.infinity,
                 height: 48,
@@ -726,21 +741,19 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
-                    side: BorderSide(
-                        color: Colors.white.withOpacity(0.2)),
+                    side:
+                        BorderSide(color: Colors.white.withOpacity(0.2)),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12)),
                   ),
                   icon: Icon(Icons.add_photo_alternate_outlined,
-                      size: 18,
-                      color: Colors.white.withOpacity(0.6)),
+                      size: 18, color: Colors.white.withOpacity(0.6)),
                   label: Text('Add a memory',
                       style: TextStyle(
                           fontSize: 14,
                           color: Colors.white.withOpacity(0.6))),
                 ),
               ),
-
               const Spacer(),
             ],
           ),
@@ -790,13 +803,10 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         elevation: 0,
         centerTitle: true,
         title: Text(title,
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w600)),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _delete,
-          ),
+              icon: const Icon(Icons.delete_outline), onPressed: _delete),
         ],
       ),
       body: SafeArea(
@@ -816,8 +826,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
               const SizedBox(height: 10),
               Text(
                 'Your memories are ready to be revealed.',
-                style:
-                    TextStyle(color: Colors.white.withOpacity(0.7)),
+                style: TextStyle(color: Colors.white.withOpacity(0.7)),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -835,8 +844,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                   icon: const Icon(Icons.lock_open),
                   label: const Text('Reveal Memories',
                       style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600)),
+                          fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
               const Spacer(),
@@ -872,6 +880,12 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
       memorySummary = parts.join(' · ');
     }
 
+    // First photo for the share card preview (if any)
+    final firstPhoto = _memories
+        .where((m) => m.type == _MemoryType.photo && m.bytes != null)
+        .map((m) => m.bytes!)
+        .firstOrNull;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -880,17 +894,25 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
         elevation: 0,
         centerTitle: true,
         title: Text(title,
-            style: const TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w600)),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         actions: [
+          // ✅ Share card button
+          _sharingInProgress
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child:
+                        CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.ios_share_outlined),
+                  onPressed: _shareCard,
+                ),
           IconButton(
-            icon: const Icon(Icons.ios_share_outlined),
-            onPressed: _share,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _delete,
-          ),
+              icon: const Icon(Icons.delete_outline), onPressed: _delete),
         ],
       ),
       body: Stack(
@@ -899,62 +921,23 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF1a1a2e), Colors.black],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 36),
-                  child: Column(
-                    children: [
-                      Text(emoji,
-                          style: const TextStyle(fontSize: 80)),
-                      const SizedBox(height: 20),
-                      Text(title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
-                          ),
-                          textAlign: TextAlign.center),
-                      const SizedBox(height: 8),
-                      if (sealedStr.isNotEmpty)
-                        Text('Created on $sealedStr',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.4),
-                              fontSize: 13,
-                            ),
-                            textAlign: TextAlign.center),
-                      const SizedBox(height: 20),
-                      if (openedStr.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: AppTheme.green.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                                color:
-                                    AppTheme.green.withOpacity(0.3)),
-                          ),
-                          child: Text('🔓  Opened on $openedStr',
-                              style: TextStyle(
-                                color: AppTheme.green.withOpacity(0.9),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ),
-                    ],
+                // ✅ Share card — wrapped in RepaintBoundary for capture
+                RepaintBoundary(
+                  key: _shareCardKey,
+                  child: _ShareCard(
+                    title: title,
+                    emoji: emoji,
+                    openedStr: openedStr,
+                    sealedStr: sealedStr,
+                    timeWaited: timeWaited,
+                    photoCount: _photoCount,
+                    textCount: _textCount,
+                    previewPhoto: firstPhoto,
                   ),
                 ),
+
                 Padding(
-                  padding:
-                      const EdgeInsets.fromLTRB(24, 0, 24, 40),
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -967,8 +950,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             color: const Color(0xFF111111),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                                color:
-                                    Colors.white.withOpacity(0.06)),
+                                color: Colors.white.withOpacity(0.06)),
                           ),
                           child: Row(
                             children: [
@@ -976,15 +958,12 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                                 width: 48,
                                 height: 48,
                                 decoration: BoxDecoration(
-                                  color:
-                                      Colors.white.withOpacity(0.06),
+                                  color: Colors.white.withOpacity(0.06),
                                   shape: BoxShape.circle,
                                 ),
                                 child: const Center(
-                                  child: Text('⏳',
-                                      style:
-                                          TextStyle(fontSize: 22)),
-                                ),
+                                    child: Text('⏳',
+                                        style: TextStyle(fontSize: 22))),
                               ),
                               const SizedBox(width: 16),
                               Column(
@@ -1000,8 +979,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                                   const SizedBox(height: 3),
                                   Text('Worth every second.',
                                       style: TextStyle(
-                                        color: Colors.white
-                                            .withOpacity(0.4),
+                                        color:
+                                            Colors.white.withOpacity(0.4),
                                         fontSize: 12,
                                       )),
                                 ],
@@ -1019,8 +998,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             color: const Color(0xFF111111),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                                color:
-                                    Colors.white.withOpacity(0.06)),
+                                color: Colors.white.withOpacity(0.06)),
                           ),
                           child: Text(desc,
                               style: TextStyle(
@@ -1035,8 +1013,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                         children: [
                           Expanded(
                               child: Divider(
-                                  color:
-                                      Colors.white.withOpacity(0.08),
+                                  color: Colors.white.withOpacity(0.08),
                                   height: 1)),
                           Padding(
                             padding: const EdgeInsets.symmetric(
@@ -1051,8 +1028,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                           ),
                           Expanded(
                               child: Divider(
-                                  color:
-                                      Colors.white.withOpacity(0.08),
+                                  color: Colors.white.withOpacity(0.08),
                                   height: 1)),
                         ],
                       ),
@@ -1061,9 +1037,8 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                         Center(
                           child: Text(memorySummary,
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.3),
-                                fontSize: 12,
-                              )),
+                                  color: Colors.white.withOpacity(0.3),
+                                  fontSize: 12)),
                         ),
                       const SizedBox(height: 20),
                       if (_memoriesLoading && _memories.isEmpty)
@@ -1106,8 +1081,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
                             return _FadeInMemory(
                               index: i,
                               child: memory.type == _MemoryType.text
-                                  ? _TextMemoryCard(
-                                      text: memory.text!)
+                                  ? _TextMemoryCard(text: memory.text!)
                                   : _PhotoMemoryCard(
                                       bytes: memory.bytes!,
                                       onTap: () =>
@@ -1152,6 +1126,216 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
   }
 }
 
+// ── Share Card Widget ─────────────────────────────────────────────────────────
+
+class _ShareCard extends StatelessWidget {
+  final String title;
+  final String emoji;
+  final String openedStr;
+  final String sealedStr;
+  final String timeWaited;
+  final int photoCount;
+  final int textCount;
+  final Uint8List? previewPhoto;
+
+  const _ShareCard({
+    required this.title,
+    required this.emoji,
+    required this.openedStr,
+    required this.sealedStr,
+    required this.timeWaited,
+    required this.photoCount,
+    required this.textCount,
+    this.previewPhoto,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPhoto = previewPhoto != null;
+    final memorySummary = [
+      if (photoCount > 0) '$photoCount photo${photoCount > 1 ? 's' : ''}',
+      if (textCount > 0) '$textCount note${textCount > 1 ? 's' : ''}',
+    ].join(' · ');
+
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF0D0D1A), Color(0xFF0A0A0A)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Background photo (blurred) if available
+          if (hasPhoto)
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.15,
+                child: Image.memory(
+                  previewPhoto!,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+
+          // Content
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 40, 24, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Boxed branding
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('📦',
+                        style: TextStyle(fontSize: 14)),
+                    const SizedBox(width: 6),
+                    Text('Boxed',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.4),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.0,
+                        )),
+                  ],
+                ),
+                const SizedBox(height: 32),
+
+                // Main emoji
+                Text(emoji, style: const TextStyle(fontSize: 72)),
+                const SizedBox(height: 16),
+
+                // Capsule title
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 8),
+
+                if (sealedStr.isNotEmpty)
+                  Text(
+                    'Sealed on $sealedStr',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.4),
+                      fontSize: 13,
+                    ),
+                  ),
+
+                const SizedBox(height: 24),
+
+                // Opened badge
+                if (openedStr.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.green.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                          color: AppTheme.green.withOpacity(0.35)),
+                    ),
+                    child: Text(
+                      '🔓  Opened on $openedStr',
+                      style: TextStyle(
+                        color: AppTheme.green.withOpacity(0.9),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+
+                const SizedBox(height: 28),
+
+                // Stats row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (timeWaited.isNotEmpty)
+                      _statPill('⏳', 'Waited $timeWaited'),
+                    if (timeWaited.isNotEmpty && memorySummary.isNotEmpty)
+                      const SizedBox(width: 10),
+                    if (memorySummary.isNotEmpty)
+                      _statPill('💾', memorySummary),
+                  ],
+                ),
+
+                // Photo preview strip
+                if (hasPhoto) ...[
+                  const SizedBox(height: 24),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.memory(
+                      previewPhoto!,
+                      height: 180,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 28),
+
+                // Footer
+                Text(
+                  'Create your own time capsule',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.3),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'boxedapp.co',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statPill(String icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 13)),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              )),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Staggered fade-in wrapper ─────────────────────────────────────────────────
 
 class _FadeInMemory extends StatefulWidget {
@@ -1174,13 +1358,11 @@ class _FadeInMemoryState extends State<_FadeInMemory>
     super.initState();
     _controller = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 500));
-    _fade =
-        CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _slide = Tween<Offset>(
       begin: const Offset(0, 0.06),
       end: Offset.zero,
-    ).animate(
-        CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     Future.delayed(Duration(milliseconds: 80 * widget.index), () {
       if (mounted) _controller.forward();
     });
@@ -1235,9 +1417,8 @@ class _TextMemoryCard extends StatelessWidget {
                 color: Colors.white.withOpacity(0.9),
                 fontSize: isShort ? 18 : 15,
                 height: isShort ? 1.6 : 1.7,
-                fontWeight: isShort
-                    ? FontWeight.w500
-                    : FontWeight.w400,
+                fontWeight:
+                    isShort ? FontWeight.w500 : FontWeight.w400,
               )),
         ],
       ),
@@ -1270,8 +1451,7 @@ class _PhotoMemoryCard extends StatelessWidget {
             errorBuilder: (_, __, ___) => const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('[Could not display image]',
-                      style:
-                          TextStyle(color: AppTheme.mutedText)),
+                      style: TextStyle(color: AppTheme.mutedText)),
                 )),
       ),
     );
