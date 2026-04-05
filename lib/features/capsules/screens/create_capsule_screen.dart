@@ -508,7 +508,9 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
                   fontWeight: FontWeight.w700)),
           centerTitle: true,
         ),
-        body: Form(
+        body: GestureDetector(
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: Form(
           key: _formKey,
           child: Column(
             children: [
@@ -823,6 +825,7 @@ class _CreateCapsuleScreenState extends State<CreateCapsuleScreen> {
           ),
         ),
       ),
+        ),
     );
   }
 
