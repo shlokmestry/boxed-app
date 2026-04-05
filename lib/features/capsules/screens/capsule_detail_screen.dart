@@ -345,7 +345,7 @@ class _CapsuleDetailScreenState extends State<CapsuleDetailScreen> {
 
       final title = (_capsuleData?['name'] ?? 'My Capsule').toString();
       await Share.shareXFiles(
-        [XFile(file.path)],
+        [XFile(file.path, mimeType: 'image/png')],
         text:
             '📦 Just opened my Boxed time capsule — "$title". Download Boxed to seal your own memories!',
       );
